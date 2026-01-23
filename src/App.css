@@ -47,6 +47,22 @@
   margin: 0 0 18px;
 }
 
+.verse {
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  border-left: 3px solid #faa11c;
+  background: rgba(250, 161, 28, 0.08);
+  color: #f4f7ec;
+  font-weight: 600;
+}
+
+.verse span {
+  display: inline-block;
+  margin-left: 6px;
+  color: #ffd9a1;
+  font-weight: 700;
+}
+
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.16em;
