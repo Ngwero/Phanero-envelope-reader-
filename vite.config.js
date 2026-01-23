@@ -4,5 +4,5 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: './', // relative paths so GitHub Pages works under a subpath
+  base: '/Phanero-envelope-reader-/', // GitHub Pages base path for this repo
 })
