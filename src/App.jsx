@@ -153,7 +153,7 @@ function App() {
             <span className="brand-dot" />
             <span>Phaneroo Envelope Checker</span>
           </div>
-          <p className="eyebrow">Envelope Intake</p>
+          <p className="eyebrow">Phaneroo Envelope Intake</p>
           <h1>Scan, extract, and export without typing.</h1>
           <p className="lede">
             Point your phone camera at an envelope, capture the address block, and export everything to Excel with one
