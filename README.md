@@ -24,3 +24,4 @@ Open the printed URL (or `http://localhost:5173`) in your phone browser. HTTPS i
 - Tesseract.js runs fully in the browser; scanning speed depends on device performance and lighting.  
 - Keep the address well lit with minimal shadows for best accuracy.  
 - The postal line is detected with a ZIP/ZIP+4 pattern; other lines fall back to their order in the OCR result.
+# Phanero-envelope-reader-
