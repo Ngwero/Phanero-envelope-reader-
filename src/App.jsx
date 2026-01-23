@@ -156,7 +156,7 @@ function App() {
           <h1>Scan, extract, and export without typing.</h1>
           <p className="lede">Point your phone camera at an envelope, capture the address block, and export everything to Excel with one click.</p>
           <blockquote className="verse">
-            “Each of you should use whatever gift you have received to serve others.” <span>1 Peter 4:10</span>
+            “The greatest among you will be your servant.” <span>Matthew 23:11</span>
           </blockquote>
           <div className="actions">
             <button className="primary" onClick={() => setCameraOn((c) => !c)}>
