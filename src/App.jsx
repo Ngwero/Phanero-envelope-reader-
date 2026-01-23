@@ -149,6 +149,10 @@ function App() {
     <div className="page">
       <header className="hero">
         <div>
+          <div className="brand-pill">
+            <span className="brand-dot" />
+            <span>Phaneroo Envelope Checker</span>
+          </div>
           <p className="eyebrow">Envelope Intake</p>
           <h1>Scan, extract, and export without typing.</h1>
           <p className="lede">

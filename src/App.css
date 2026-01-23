@@ -19,6 +19,28 @@
   letter-spacing: -0.04em;
 }
 
+.brand-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(136, 199, 48, 0.16), rgba(250, 161, 28, 0.14));
+  border: 1px solid rgba(136, 199, 48, 0.35);
+  color: #f4f7ec;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  width: fit-content;
+}
+
+.brand-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #88c730, #faa11c);
+  box-shadow: 0 0 0 6px rgba(136, 199, 48, 0.18);
+}
+
 .hero .lede {
   color: #d9e5c8;
   max-width: 560px;
