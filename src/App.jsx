@@ -154,10 +154,7 @@ function App() {
             <span>Phaneroo Envelope Checker</span>
           </div>
           <h1>Scan, extract, and export without typing.</h1>
-          <p className="lede">
-            Point your phone camera at an envelope, capture the address block, and export everything to Excel with one
-            click. Perfect for quick mailroom intake.
-          </p>
+          <p className="lede">Point your phone camera at an envelope, capture the address block, and export everything to Excel with one click.</p>
           <div className="actions">
             <button className="primary" onClick={() => setCameraOn((c) => !c)}>
               {cameraOn ? 'Stop camera' : 'Enable camera'}
