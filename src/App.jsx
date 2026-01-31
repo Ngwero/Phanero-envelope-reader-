@@ -3,48 +3,98 @@ import Tesseract from 'tesseract.js'
 import * as XLSX from 'xlsx'
 import './App.css'
 
-const parseEnvelopeText = (text) => {
-  const lines = text
-    .split(/\r?\n/)
-    .map((l) => l.replace(/[^\w\s.,#\-\/]/g, ' ').replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
+const parseContributionForm = (text) => {
+  // Extract Names - look for "Names:" followed by name text
+  // Handle OCR errors: "Names" might be read as "Narnes", "Narnes", etc.
+  let names = ''
+  const namesPatterns = [
+    /(?:Names?|Narnes?|Narnes)[:\s]+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,5})/i,
+    /(?:Names?)[:\s]*([A-Z][A-Za-z\s]{3,50})/i,
+  ]
+  for (const pattern of namesPatterns) {
+    const match = text.match(pattern)
+    if (match && match[1]) {
+      names = match[1].trim().replace(/\s+/g, ' ')
+      // Clean up common OCR errors in names
+      names = names.replace(/[|]/g, 'I').replace(/[0O](?=\s|$)/g, 'O')
+      break
+    }
+  }
 
-  const postalIndex = lines.findIndex((line) => /\b\d{5}(?:-\d{4})?\b/.test(line))
-  const cityStatePostal = postalIndex >= 0 ? lines[postalIndex] : lines[2] ?? ''
+  // Extract Date - look for date patterns like 29/1/2026, 29-1-2026, 29.1.2026
+  let date = ''
+  const datePatterns = [
+    /(?:Date)[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/i,
+    /(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})/,
+  ]
+  for (const pattern of datePatterns) {
+    const match = text.match(pattern)
+    if (match && match[1]) {
+      date = match[1]
+      break
+    }
+  }
 
-  // Extract Names (look for "Names:" or similar patterns, capture multiple words)
-  const namesMatch = text.match(/(?:Names?|Name)[:\s]+([A-Za-z\s]{2,50})/i)
-  const names = namesMatch ? namesMatch[1].trim().replace(/\s+/g, ' ') : ''
+  // Extract Telephone - look for phone numbers (typically 9-15 digits, often starting with 0)
+  // Handle spaces, dashes, and OCR errors
+  let telephone = ''
+  const telPatterns = [
+    /(?:Telephone|Phone|Tel)[:\s]*(?:No[:\s]*)?([0O]?[\d\s\-]{9,18})/i,
+    /([0O]\d[\d\s\-]{7,15})/,
+  ]
+  for (const pattern of telPatterns) {
+    const match = text.match(pattern)
+    if (match && match[1]) {
+      telephone = match[1].replace(/\s+/g, '').replace(/\-/g, '').replace(/O/g, '0')
+      // Ensure it starts with 0 and has 10 digits
+      if (telephone.length >= 9 && telephone.length <= 15) {
+        if (!telephone.startsWith('0') && telephone.length === 9) {
+          telephone = '0' + telephone
+        }
+        break
+      }
+    }
+  }
 
-  // Extract Date (look for date patterns like 29/1/2026, 29-1-2026, etc.)
-  const dateMatch = text.match(/(?:Date)[:\s]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i) || text.match(/(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/)
-  const date = dateMatch ? dateMatch[1] : ''
+  // Extract Email Address - look for email pattern (usually reliable in OCR)
+  let emailAddress = ''
+  const emailPatterns = [
+    /(?:Email|E-mail|Ernail)[:\s]*(?:Address[:\s]*)?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
+    /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
+  ]
+  for (const pattern of emailPatterns) {
+    const match = text.match(pattern)
+    if (match && match[1]) {
+      emailAddress = match[1]
+      break
+    }
+  }
 
-  // Extract Telephone (look for phone number patterns)
-  const telephoneMatch = text.match(/(?:Telephone|Phone|Tel)[:\s]*(?:No[:\s]*)?(\d{9,15})/i) || text.match(/(?:0\d{9})/)
-  const telephone = telephoneMatch ? telephoneMatch[1] : ''
-
-  // Extract Email Address
-  const emailMatch = text.match(/(?:Email|E-mail)[:\s]*(?:Address[:\s]*)?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i) || text.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i)
-  const emailAddress = emailMatch ? emailMatch[1] : ''
-
-  // Extract Amount (look for large numbers with commas, often near "Tithe", "Cash", etc.)
-  const amountMatch = text.match(/(?:Tithe|Cash|Amount)[:\s]*(\d{1,3}(?:[,\s]\d{3})*)/i) || text.match(/(\d{1,3}(?:[,\s]\d{3}){1,})/)
-  const amount = amountMatch ? amountMatch[1].replace(/\s+/g, '') : ''
+  // Extract Amount - look for numbers with commas (like 2,120,000)
+  // Often appears near "Tithe", "Cash", "Amount", "Prisons Ministry"
+  let amount = ''
+  const amountPatterns = [
+    /(?:Tithe|Cash|Amount|Prisons\s+Ministry|1st\s+Fruit)[:\s]*(\d{1,3}(?:[,\s]\d{3}){1,})/i,
+    /(\d{1,3}(?:[,\s]\d{3}){2,})/,
+    /(\d{4,}(?:[,\s]\d{3})*)/,
+  ]
+  for (const pattern of amountPatterns) {
+    const match = text.match(pattern)
+    if (match && match[1]) {
+      amount = match[1].replace(/\s+/g, '').replace(/[Oo]/g, '0')
+      // Validate it's a reasonable amount (at least 4 digits)
+      if (amount.replace(/,/g, '').length >= 4) {
+        break
+      }
+    }
+  }
 
   return {
-    recipient: lines[0] ?? '',
-    street: lines[1] ?? '',
-    cityStatePostal,
-    notes: lines
-      .filter((_, idx) => idx > 2 && idx !== postalIndex)
-      .join(' ')
-      .trim(),
-    names,
-    date,
-    telephone,
-    emailAddress,
-    amount,
+    names: names || '',
+    date: date || '',
+    telephone: telephone || '',
+    emailAddress: emailAddress || '',
+    amount: amount || '',
     rawText: text.trim(),
   }
 }
@@ -56,11 +106,6 @@ const formatRowForExcel = (row, index) => ({
   TELEPHONE: row.telephone,
   'EMAIL ADDRESS': row.emailAddress,
   AMOUNT: row.amount,
-  Recipient: row.recipient,
-  Street: row.street,
-  'City / State / Postal': row.cityStatePostal,
-  Notes: row.notes,
-  'Raw OCR': row.rawText,
 })
 
 function App() {
@@ -121,7 +166,7 @@ function App() {
         setStatus('No text detected. Try again with more light.')
         return
       }
-      const parsed = parseEnvelopeText(text)
+      const parsed = parseContributionForm(text)
       setEntries((prev) => [{ id: Date.now(), ...parsed }, ...prev])
       setStatus('Captured and added to the table.')
     } catch (err) {
@@ -165,8 +210,8 @@ function App() {
     }
     const worksheet = XLSX.utils.json_to_sheet(entries.map(formatRowForExcel))
     const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Envelope Scans')
-    XLSX.writeFile(workbook, 'envelope-scans.xlsx')
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Contribution Forms')
+    XLSX.writeFile(workbook, 'phaneroo-contributions.xlsx')
     setStatus('Excel file created.')
   }
 
@@ -184,7 +229,7 @@ function App() {
             <span>Phaneroo Envelope Checker</span>
           </div>
           <h1>Scan, extract, and export without typing.</h1>
-          <p className="lede">Point your phone camera at an envelope, capture the address block, and export everything to Excel with one click.</p>
+          <p className="lede">Point your phone camera at a Phaneroo contribution form, capture the form, and export everything to Excel with one click.</p>
           <blockquote className="verse">
             “The greatest among you will be your servant.” <span>Matthew 23:11</span>
           </blockquote>
@@ -222,7 +267,7 @@ function App() {
             <button className="primary" onClick={handleCapture} disabled={!cameraOn || isProcessing}>
               {isProcessing ? 'Reading...' : 'Capture & Read'}
             </button>
-            <span className="hint">Use natural light and fill the frame with the address block.</span>
+            <span className="hint">Use natural light and fill the frame with the contribution form.</span>
           </div>
         </div>
       </header>
@@ -231,7 +276,7 @@ function App() {
         <div className="panel-header">
           <div>
             <p className="eyebrow">Captured rows</p>
-            <h2>Auto-filled address table</h2>
+            <h2>Contribution form data</h2>
           </div>
           <div className="panel-actions">
             <button className="ghost" onClick={exportExcel}>
@@ -248,7 +293,7 @@ function App() {
             <small>Capture with the camera or upload a photo to populate the table.</small>
           </div>
         ) : (
-          <div className="table" role="table" aria-label="Captured envelope rows">
+          <div className="table" role="table" aria-label="Captured contribution forms">
             <div className="table-head" role="row">
               <span>#</span>
               <span>NAMES</span>
@@ -256,11 +301,6 @@ function App() {
               <span>TELEPHONE</span>
               <span>EMAIL ADDRESS</span>
               <span>AMOUNT</span>
-              <span>Recipient</span>
-              <span>Street</span>
-              <span>City / State / Postal</span>
-              <span>Notes</span>
-              <span>Raw OCR</span>
             </div>
             <div className="table-body">
               {entries.map((row, idx) => (
@@ -271,11 +311,6 @@ function App() {
                   <span>{row.telephone || '—'}</span>
                   <span>{row.emailAddress || '—'}</span>
                   <span>{row.amount || '—'}</span>
-                  <span>{row.recipient || '—'}</span>
-                  <span>{row.street || '—'}</span>
-                  <span>{row.cityStatePostal || '—'}</span>
-                  <span>{row.notes || '—'}</span>
-                  <span className="raw">{row.rawText || '—'}</span>
                 </div>
               ))}
             </div>
