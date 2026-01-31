@@ -12,6 +12,26 @@ const parseEnvelopeText = (text) => {
   const postalIndex = lines.findIndex((line) => /\b\d{5}(?:-\d{4})?\b/.test(line))
   const cityStatePostal = postalIndex >= 0 ? lines[postalIndex] : lines[2] ?? ''
 
+  // Extract Names (look for "Names:" or similar patterns, capture multiple words)
+  const namesMatch = text.match(/(?:Names?|Name)[:\s]+([A-Za-z\s]{2,50})/i)
+  const names = namesMatch ? namesMatch[1].trim().replace(/\s+/g, ' ') : ''
+
+  // Extract Date (look for date patterns like 29/1/2026, 29-1-2026, etc.)
+  const dateMatch = text.match(/(?:Date)[:\s]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i) || text.match(/(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/)
+  const date = dateMatch ? dateMatch[1] : ''
+
+  // Extract Telephone (look for phone number patterns)
+  const telephoneMatch = text.match(/(?:Telephone|Phone|Tel)[:\s]*(?:No[:\s]*)?(\d{9,15})/i) || text.match(/(?:0\d{9})/)
+  const telephone = telephoneMatch ? telephoneMatch[1] : ''
+
+  // Extract Email Address
+  const emailMatch = text.match(/(?:Email|E-mail)[:\s]*(?:Address[:\s]*)?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i) || text.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i)
+  const emailAddress = emailMatch ? emailMatch[1] : ''
+
+  // Extract Amount (look for large numbers with commas, often near "Tithe", "Cash", etc.)
+  const amountMatch = text.match(/(?:Tithe|Cash|Amount)[:\s]*(\d{1,3}(?:[,\s]\d{3})*)/i) || text.match(/(\d{1,3}(?:[,\s]\d{3}){1,})/)
+  const amount = amountMatch ? amountMatch[1].replace(/\s+/g, '') : ''
+
   return {
     recipient: lines[0] ?? '',
     street: lines[1] ?? '',
@@ -20,12 +40,22 @@ const parseEnvelopeText = (text) => {
       .filter((_, idx) => idx > 2 && idx !== postalIndex)
       .join(' ')
       .trim(),
+    names,
+    date,
+    telephone,
+    emailAddress,
+    amount,
     rawText: text.trim(),
   }
 }
 
 const formatRowForExcel = (row, index) => ({
   '#': index + 1,
+  NAMES: row.names,
+  DATE: row.date,
+  TELEPHONE: row.telephone,
+  'EMAIL ADDRESS': row.emailAddress,
+  AMOUNT: row.amount,
   Recipient: row.recipient,
   Street: row.street,
   'City / State / Postal': row.cityStatePostal,
@@ -221,6 +251,11 @@ function App() {
           <div className="table" role="table" aria-label="Captured envelope rows">
             <div className="table-head" role="row">
               <span>#</span>
+              <span>NAMES</span>
+              <span>DATE</span>
+              <span>TELEPHONE</span>
+              <span>EMAIL ADDRESS</span>
+              <span>AMOUNT</span>
               <span>Recipient</span>
               <span>Street</span>
               <span>City / State / Postal</span>
@@ -231,6 +266,11 @@ function App() {
               {entries.map((row, idx) => (
                 <div className="table-row" role="row" key={row.id}>
                   <span>{entries.length - idx}</span>
+                  <span>{row.names || '—'}</span>
+                  <span>{row.date || '—'}</span>
+                  <span>{row.telephone || '—'}</span>
+                  <span>{row.emailAddress || '—'}</span>
+                  <span>{row.amount || '—'}</span>
                   <span>{row.recipient || '—'}</span>
                   <span>{row.street || '—'}</span>
                   <span>{row.cityStatePostal || '—'}</span>
