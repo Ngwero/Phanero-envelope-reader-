@@ -117,6 +117,8 @@ function App() {
   const [status, setStatus] = useState('Ready to scan')
   const [entries, setEntries] = useState([])
   const [error, setError] = useState('')
+  const [ocrMethod, setOcrMethod] = useState('ocrspace') // 'tesseract' or 'ocrspace'
+  const [apiKey, setApiKey] = useState('') // OCR.space API key (optional for free tier)
 
   useEffect(() => {
     if (!cameraOn) return
@@ -145,7 +147,56 @@ function App() {
     }
   }, [cameraOn])
 
-  const runOcr = async (imageDataUrl) => {
+  // Convert data URL to base64 without data URL prefix
+  const dataURLtoBase64 = (dataUrl) => {
+    return dataUrl.split(',')[1]
+  }
+
+  // Convert data URL to Blob
+  const dataURLtoBlob = (dataUrl) => {
+    const arr = dataUrl.split(',')
+    const mime = arr[0].match(/:(.*?);/)[1]
+    const bstr = atob(arr[1])
+    let n = bstr.length
+    const u8arr = new Uint8Array(n)
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n)
+    }
+    return new Blob([u8arr], { type: mime })
+  }
+
+  const runOcrSpace = async (imageDataUrl) => {
+    setProgress(10)
+    const formData = new FormData()
+    const blob = dataURLtoBlob(imageDataUrl)
+    formData.append('file', blob, 'image.jpg')
+    
+    // OCR.space API endpoint
+    // Free tier: 25,000 requests/month, no API key needed for basic usage
+    // For better accuracy, you can get a free API key from https://ocr.space/OCRAPI
+    const apiUrl = apiKey 
+      ? `https://api.ocr.space/parse/image?apikey=${apiKey}&language=eng&isOverlayRequired=false`
+      : 'https://api.ocr.space/parse/image?language=eng&isOverlayRequired=false'
+    
+    setProgress(30)
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      body: formData,
+    })
+    
+    setProgress(70)
+    const data = await response.json()
+    setProgress(100)
+    
+    if (data.ParsedResults && data.ParsedResults.length > 0) {
+      return data.ParsedResults[0].ParsedText || ''
+    } else if (data.ErrorMessage) {
+      throw new Error(data.ErrorMessage)
+    }
+    return ''
+  }
+
+  const runTesseract = async (imageDataUrl) => {
     const result = await Tesseract.recognize(imageDataUrl, 'eng', {
       logger: (m) => {
         if (m.status === 'recognizing text') {
@@ -154,6 +205,20 @@ function App() {
       },
     })
     return result.data?.text || ''
+  }
+
+  const runOcr = async (imageDataUrl) => {
+    if (ocrMethod === 'ocrspace') {
+      try {
+        return await runOcrSpace(imageDataUrl)
+      } catch (err) {
+        console.warn('OCR.space failed, falling back to Tesseract:', err)
+        setStatus('OCR.space unavailable, using Tesseract...')
+        return await runTesseract(imageDataUrl)
+      }
+    } else {
+      return await runTesseract(imageDataUrl)
+    }
   }
 
   const processImage = async (dataUrl) => {
@@ -244,6 +309,48 @@ function App() {
             <button className="ghost" onClick={exportExcel}>
               Export to Excel
             </button>
+          </div>
+          <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#d0e4b2', fontSize: '0.9rem' }}>
+              <span>OCR Method:</span>
+              <select 
+                value={ocrMethod} 
+                onChange={(e) => setOcrMethod(e.target.value)}
+                style={{ 
+                  padding: '0.5rem', 
+                  borderRadius: '4px', 
+                  border: '1px solid #2b3f17',
+                  background: '#151e0d',
+                  color: '#d0e4b2',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="ocrspace">OCR.space (More Accurate)</option>
+                <option value="tesseract">Tesseract.js (Free, Local)</option>
+              </select>
+            </label>
+            {ocrMethod === 'ocrspace' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <input
+                  type="text"
+                  placeholder="OCR.space API Key (optional - free tier: 25k/month)"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  style={{
+                    padding: '0.5rem',
+                    borderRadius: '4px',
+                    border: '1px solid #2b3f17',
+                    background: '#151e0d',
+                    color: '#d0e4b2',
+                    fontSize: '0.85rem',
+                    minWidth: '250px'
+                  }}
+                />
+                <small style={{ color: '#8a9a6b', fontSize: '0.75rem' }}>
+                  Get free API key at <a href="https://ocr.space/OCRAPI" target="_blank" rel="noopener noreferrer" style={{ color: '#a8d5ba' }}>ocr.space/OCRAPI</a> (optional)
+                </small>
+              </div>
+            )}
           </div>
           <p className="status">
             {status}
