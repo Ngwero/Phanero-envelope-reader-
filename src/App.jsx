@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import './App.css'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+// When deployed on Render (frontend + API same origin), leave VITE_API_URL unset
+// so we use relative URLs like '/api/ocr'. For local dev, set VITE_API_URL=http://localhost:3001.
+const API_URL = import.meta.env.VITE_API_URL || ''
 
 function App() {
   const videoRef = useRef(null)
