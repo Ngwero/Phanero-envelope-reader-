@@ -174,13 +174,13 @@ app.post('/api/export', (req, res) => {
       const structured = entry.structured || {};
       return {
         '#': index + 1,
-        name: structured.name || '',
-        email: structured.email || '',
-        telephone: structured.telephone || '',
-        date: structured.date || '',
-        contributionType: structured.contributionType || '',
-        paymentMethod: structured.paymentMethod || '',
-        amount: structured.amount || '',
+        Name: structured.name || '',
+        Email: structured.email || '',
+        Telephone: structured.telephone || '',
+        Date: structured.date || '',
+        'Contribution Type': structured.contributionType || '',
+        'Payment Method': structured.paymentMethod || '',
+        Amount: structured.amount || '',
       };
     });
 
