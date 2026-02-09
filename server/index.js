@@ -40,10 +40,11 @@ function toStructured(parsed) {
     date: String(parsed.date ?? '').trim(),
     paymentMethod: String(parsed.paymentMethod ?? '').trim(),
     amount: String(parsed.amount ?? '').trim(),
+    contributionType: String(parsed.contributionType ?? '').trim(),
   };
 }
 
-const VISION_PROMPT = `Look at this image of a contribution/donation form. Extract the following fields and return ONLY a JSON object with exactly these keys (use empty string "" if not found): name, email, telephone, date, paymentMethod, amount. No markdown, no explanation. Dates: YYYY-MM-DD or original format. Amount: digits or with currency. Telephone: digits only, include country code if present (e.g. +256).`;
+const VISION_PROMPT = `Look at this image of a contribution/donation form. Extract the following fields and return ONLY a JSON object with exactly these keys (use empty string "" if not found): name, email, telephone, date, paymentMethod, amount, contributionType. No markdown, no explanation. Dates: YYYY-MM-DD or original format. Amount: digits or with currency. Telephone: digits only, include country code if present (e.g. +256). For contributionType: look at which option is TICKED/CHECKED on the form and use that exact label. Common options: Tithe, 1st fruits, Offertory, Prisons ministry, Manifest, Other. If multiple are ticked, use the first one; if none, use "".`;
 
 /**
  * Send image to Gemini vision and get structured fields (name, email, telephone, date, paymentMethod, amount).
@@ -94,6 +95,7 @@ function logStructured(structured) {
   console.log('  date:', structured.date || '(empty)');
   console.log('  paymentMethod:', structured.paymentMethod || '(empty)');
   console.log('  amount:', structured.amount || '(empty)');
+  console.log('  contributionType:', structured.contributionType || '(empty)');
   console.log('-----------------------\n');
 }
 
@@ -176,6 +178,7 @@ app.post('/api/export', (req, res) => {
         email: structured.email || '',
         telephone: structured.telephone || '',
         date: structured.date || '',
+        contributionType: structured.contributionType || '',
         paymentMethod: structured.paymentMethod || '',
         amount: structured.amount || '',
       };
