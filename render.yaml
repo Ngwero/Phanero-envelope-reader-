@@ -6,7 +6,7 @@ services:
   - type: web
     name: envelope-scanner
     env: node
-    buildCommand: npm install && npm run build && cd server && npm install
+    buildCommand: npm install --include=dev && npm run build && cd server && npm install
     startCommand: cd server && NODE_ENV=production node index.js
     envVars:
       - key: NODE_ENV
