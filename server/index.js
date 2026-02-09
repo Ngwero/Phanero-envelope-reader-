@@ -86,7 +86,8 @@ async function extractWithGeminiVision(imageBuffer, mimeType = 'image/jpeg') {
 }
 
 function logStructured(structured) {
-  console.log('\n--- Gemini extracted ---');
+  const ts = new Date().toISOString();
+  console.log(`\n[${ts}] --- Gemini extracted ---`);
   console.log('  name:', structured.name || '(empty)');
   console.log('  email:', structured.email || '(empty)');
   console.log('  telephone:', structured.telephone || '(empty)');
@@ -116,6 +117,8 @@ app.get('/health', (req, res) => {
  * Process image with Gemini vision: extract form fields (no Python OCR).
  */
 app.post('/api/ocr', upload.single('image'), async (req, res) => {
+  const reqId = Date.now();
+  console.log(`[${new Date().toISOString()}] [OCR] Request ${reqId} received`);
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No image file provided' });
@@ -128,9 +131,11 @@ app.post('/api/ocr', upload.single('image'), async (req, res) => {
     }
 
     const mimeType = req.file.mimetype || 'image/jpeg';
+    console.log(`[${new Date().toISOString()}] [OCR] Request ${reqId} calling Gemini...`);
     const structured = await extractWithGeminiVision(req.file.buffer, mimeType);
 
     if (!structured) {
+      console.log(`[${new Date().toISOString()}] [OCR] Request ${reqId} no result from Gemini`);
       return res.status(422).json({
         error: 'Could not read form from image. Try a clearer photo or check Gemini quota.',
       });
@@ -138,6 +143,7 @@ app.post('/api/ocr', upload.single('image'), async (req, res) => {
 
     const summary = [structured.name, structured.email, structured.telephone, structured.amount].filter(Boolean).join(' · ');
     logStructured(structured);
+    console.log(`[${new Date().toISOString()}] [OCR] Request ${reqId} done, responding`);
 
     res.json({
       text: summary,
