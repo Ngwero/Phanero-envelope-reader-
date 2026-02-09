@@ -1,112 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import Tesseract from 'tesseract.js'
 import * as XLSX from 'xlsx'
 import './App.css'
 
-const parseContributionForm = (text) => {
-  // Extract Names - look for "Names:" followed by name text
-  // Handle OCR errors: "Names" might be read as "Narnes", "Narnes", etc.
-  let names = ''
-  const namesPatterns = [
-    /(?:Names?|Narnes?|Narnes)[:\s]+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,5})/i,
-    /(?:Names?)[:\s]*([A-Z][A-Za-z\s]{3,50})/i,
-  ]
-  for (const pattern of namesPatterns) {
-    const match = text.match(pattern)
-    if (match && match[1]) {
-      names = match[1].trim().replace(/\s+/g, ' ')
-      // Clean up common OCR errors in names
-      names = names.replace(/[|]/g, 'I').replace(/[0O](?=\s|$)/g, 'O')
-      break
-    }
-  }
-
-  // Extract Date - look for date patterns like 29/1/2026, 29-1-2026, 29.1.2026
-  let date = ''
-  const datePatterns = [
-    /(?:Date)[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/i,
-    /(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})/,
-  ]
-  for (const pattern of datePatterns) {
-    const match = text.match(pattern)
-    if (match && match[1]) {
-      date = match[1]
-      break
-    }
-  }
-
-  // Extract Telephone - look for phone numbers (typically 9-15 digits, often starting with 0)
-  // Handle spaces, dashes, and OCR errors
-  let telephone = ''
-  const telPatterns = [
-    /(?:Telephone|Phone|Tel)[:\s]*(?:No[:\s]*)?([0O]?[\d\s\-]{9,18})/i,
-    /([0O]\d[\d\s\-]{7,15})/,
-  ]
-  for (const pattern of telPatterns) {
-    const match = text.match(pattern)
-    if (match && match[1]) {
-      telephone = match[1].replace(/\s+/g, '').replace(/\-/g, '').replace(/O/g, '0')
-      // Ensure it starts with 0 and has 10 digits
-      if (telephone.length >= 9 && telephone.length <= 15) {
-        if (!telephone.startsWith('0') && telephone.length === 9) {
-          telephone = '0' + telephone
-        }
-        break
-      }
-    }
-  }
-
-  // Extract Email Address - look for email pattern (usually reliable in OCR)
-  let emailAddress = ''
-  const emailPatterns = [
-    /(?:Email|E-mail|Ernail)[:\s]*(?:Address[:\s]*)?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
-    /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i,
-  ]
-  for (const pattern of emailPatterns) {
-    const match = text.match(pattern)
-    if (match && match[1]) {
-      emailAddress = match[1]
-      break
-    }
-  }
-
-  // Extract Amount - look for numbers with commas (like 2,120,000)
-  // Often appears near "Tithe", "Cash", "Amount", "Prisons Ministry"
-  let amount = ''
-  const amountPatterns = [
-    /(?:Tithe|Cash|Amount|Prisons\s+Ministry|1st\s+Fruit)[:\s]*(\d{1,3}(?:[,\s]\d{3}){1,})/i,
-    /(\d{1,3}(?:[,\s]\d{3}){2,})/,
-    /(\d{4,}(?:[,\s]\d{3})*)/,
-  ]
-  for (const pattern of amountPatterns) {
-    const match = text.match(pattern)
-    if (match && match[1]) {
-      amount = match[1].replace(/\s+/g, '').replace(/[Oo]/g, '0')
-      // Validate it's a reasonable amount (at least 4 digits)
-      if (amount.replace(/,/g, '').length >= 4) {
-        break
-      }
-    }
-  }
-
-  return {
-    names: names || '',
-    date: date || '',
-    telephone: telephone || '',
-    emailAddress: emailAddress || '',
-    amount: amount || '',
-    rawText: text.trim(),
-  }
-}
-
-const formatRowForExcel = (row, index) => ({
-  '#': index + 1,
-  NAMES: row.names,
-  DATE: row.date,
-  TELEPHONE: row.telephone,
-  'EMAIL ADDRESS': row.emailAddress,
-  AMOUNT: row.amount,
-})
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 function App() {
   const videoRef = useRef(null)
@@ -117,8 +13,6 @@ function App() {
   const [status, setStatus] = useState('Ready to scan')
   const [entries, setEntries] = useState([])
   const [error, setError] = useState('')
-  const [ocrMethod, setOcrMethod] = useState('ocrspace') // 'tesseract' or 'ocrspace'
-  const [apiKey, setApiKey] = useState('') // OCR.space API key (optional for free tier)
 
   useEffect(() => {
     if (!cameraOn) return
@@ -147,99 +41,66 @@ function App() {
     }
   }, [cameraOn])
 
-  // Convert data URL to base64 without data URL prefix
-  const dataURLtoBase64 = (dataUrl) => {
-    return dataUrl.split(',')[1]
-  }
-
-  // Convert data URL to Blob
-  const dataURLtoBlob = (dataUrl) => {
-    const arr = dataUrl.split(',')
-    const mime = arr[0].match(/:(.*?);/)[1]
-    const bstr = atob(arr[1])
-    let n = bstr.length
-    const u8arr = new Uint8Array(n)
-    while (n--) {
-      u8arr[n] = bstr.charCodeAt(n)
-    }
-    return new Blob([u8arr], { type: mime })
-  }
-
-  const runOcrSpace = async (imageDataUrl) => {
-    setProgress(10)
-    const formData = new FormData()
-    const blob = dataURLtoBlob(imageDataUrl)
-    formData.append('file', blob, 'image.jpg')
-    
-    // OCR.space API endpoint
-    // Free tier: 25,000 requests/month, no API key needed for basic usage
-    // For better accuracy, you can get a free API key from https://ocr.space/OCRAPI
-    const apiUrl = apiKey 
-      ? `https://api.ocr.space/parse/image?apikey=${apiKey}&language=eng&isOverlayRequired=false`
-      : 'https://api.ocr.space/parse/image?language=eng&isOverlayRequired=false'
-    
-    setProgress(30)
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      body: formData,
-    })
-    
-    setProgress(70)
-    const data = await response.json()
-    setProgress(100)
-    
-    if (data.ParsedResults && data.ParsedResults.length > 0) {
-      return data.ParsedResults[0].ParsedText || ''
-    } else if (data.ErrorMessage) {
-      throw new Error(data.ErrorMessage)
-    }
-    return ''
-  }
-
-  const runTesseract = async (imageDataUrl) => {
-    const result = await Tesseract.recognize(imageDataUrl, 'eng', {
-      logger: (m) => {
-        if (m.status === 'recognizing text') {
-          setProgress(Math.round(m.progress * 100))
-        }
-      },
-    })
-    return result.data?.text || ''
-  }
-
-  const runOcr = async (imageDataUrl) => {
-    if (ocrMethod === 'ocrspace') {
-      try {
-        return await runOcrSpace(imageDataUrl)
-      } catch (err) {
-        console.warn('OCR.space failed, falling back to Tesseract:', err)
-        setStatus('OCR.space unavailable, using Tesseract...')
-        return await runTesseract(imageDataUrl)
-      }
-    } else {
-      return await runTesseract(imageDataUrl)
-    }
-  }
-
   const processImage = async (dataUrl) => {
     setIsProcessing(true)
-    setStatus('Scanning for text...')
+    setStatus('Processing image...')
     setError('')
+    setProgress(10)
+
     try {
-      const text = await runOcr(dataUrl)
-      if (!text.trim()) {
-        setStatus('No text detected. Try again with more light.')
+      // Convert data URL to blob
+      const response = await fetch(dataUrl)
+      const blob = await response.blob()
+
+      setProgress(30)
+
+      // Send to Node.js backend
+      const formData = new FormData()
+      formData.append('image', blob, 'image.jpg')
+
+      setProgress(50)
+
+      const ocrResponse = await fetch(`${API_URL}/api/ocr`, {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!ocrResponse.ok) {
+        const errorData = await ocrResponse.json()
+        throw new Error(errorData.error || 'OCR processing failed')
+      }
+
+      setProgress(80)
+
+      const result = await ocrResponse.json()
+
+      if (!result.text || !result.text.trim()) {
+        setStatus('No text detected. Try again with better lighting or clearer image.')
+        setError('No text detected. Ensure the form is well-lit and clearly visible.')
         return
       }
-      const parsed = parseContributionForm(text)
-      setEntries((prev) => [{ id: Date.now(), ...parsed }, ...prev])
+
+      setProgress(95)
+
+      // Store entry with structured data
+      const entry = {
+        id: Date.now(),
+        text: result.text,
+        structured: result.structured || {},
+        rawText: result.rawText || result.text,
+      }
+
+      setEntries((prev) => [entry, ...prev])
       setStatus('Captured and added to the table.')
+      setProgress(100)
     } catch (err) {
-      setError('Scan failed. Try again or upload a photo.')
-      console.error(err)
+      const errorMsg = err.message || 'Scan failed. Try again or upload a photo.'
+      setError(errorMsg)
+      setStatus(`Error: ${errorMsg}`)
+      console.error('OCR Processing Error:', err)
     } finally {
       setIsProcessing(false)
-      setProgress(0)
+      setTimeout(() => setProgress(0), 1000)
     }
   }
 
@@ -268,21 +129,70 @@ function App() {
     event.target.value = ''
   }
 
-  const exportExcel = () => {
+  const exportExcel = async () => {
     if (!entries.length) {
       setStatus('Nothing to export yet.')
       return
     }
-    const worksheet = XLSX.utils.json_to_sheet(entries.map(formatRowForExcel))
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Contribution Forms')
-    XLSX.writeFile(workbook, 'phaneroo-contributions.xlsx')
-    setStatus('Excel file created.')
+
+    try {
+      // Send entries to backend for Excel export
+      const response = await fetch(`${API_URL}/api/export`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ entries }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Export failed')
+      }
+
+      // Download file
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'phaneroo-extracted-data.xlsx'
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+
+      setStatus('Excel file downloaded.')
+    } catch (err) {
+      // Fallback to client-side export (without department and title columns)
+      const worksheetData = entries.map((entry, index) => {
+        const s = entry.structured || {}
+        return {
+          '#': index + 1,
+          name: s.name || '',
+          email: s.email || '',
+          telephone: s.telephone || '',
+          date: s.date || '',
+          paymentMethod: s.paymentMethod || '',
+          amount: s.amount || '',
+        }
+      })
+
+      const worksheet = XLSX.utils.json_to_sheet(worksheetData)
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Extracted Data')
+      XLSX.writeFile(workbook, 'phaneroo-extracted-data.xlsx')
+      setStatus('Excel file created.')
+    }
   }
 
   const clearEntries = () => {
     setEntries([])
     setStatus('Cleared all rows.')
+  }
+
+  const formatField = (value) => {
+    if (value === null || value === undefined) return '—'
+    if (typeof value === 'number') return value.toLocaleString()
+    return value || '—'
   }
 
   return (
@@ -296,7 +206,7 @@ function App() {
           <h1>Scan, extract, and export without typing.</h1>
           <p className="lede">Point your phone camera at a Phaneroo contribution form, capture the form, and export everything to Excel with one click.</p>
           <blockquote className="verse">
-            “The greatest among you will be your servant.” <span>Matthew 23:11</span>
+            "The greatest among you will be your servant." <span>Matthew 23:11</span>
           </blockquote>
           <div className="actions">
             <button className="primary" onClick={() => setCameraOn((c) => !c)}>
@@ -306,51 +216,6 @@ function App() {
               Upload a photo
               <input type="file" accept="image/*" onChange={handleUpload} hidden />
             </label>
-            <button className="ghost" onClick={exportExcel}>
-              Export to Excel
-            </button>
-          </div>
-          <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#d0e4b2', fontSize: '0.9rem' }}>
-              <span>OCR Method:</span>
-              <select 
-                value={ocrMethod} 
-                onChange={(e) => setOcrMethod(e.target.value)}
-                style={{ 
-                  padding: '0.5rem', 
-                  borderRadius: '4px', 
-                  border: '1px solid #2b3f17',
-                  background: '#151e0d',
-                  color: '#d0e4b2',
-                  cursor: 'pointer'
-                }}
-              >
-                <option value="ocrspace">OCR.space (More Accurate)</option>
-                <option value="tesseract">Tesseract.js (Free, Local)</option>
-              </select>
-            </label>
-            {ocrMethod === 'ocrspace' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                <input
-                  type="text"
-                  placeholder="OCR.space API Key (optional - free tier: 25k/month)"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  style={{
-                    padding: '0.5rem',
-                    borderRadius: '4px',
-                    border: '1px solid #2b3f17',
-                    background: '#151e0d',
-                    color: '#d0e4b2',
-                    fontSize: '0.85rem',
-                    minWidth: '250px'
-                  }}
-                />
-                <small style={{ color: '#8a9a6b', fontSize: '0.75rem' }}>
-                  Get free API key at <a href="https://ocr.space/OCRAPI" target="_blank" rel="noopener noreferrer" style={{ color: '#a8d5ba' }}>ocr.space/OCRAPI</a> (optional)
-                </small>
-              </div>
-            )}
           </div>
           <p className="status">
             {status}
@@ -372,7 +237,7 @@ function App() {
           </div>
           <div className="camera-actions">
             <button className="primary" onClick={handleCapture} disabled={!cameraOn || isProcessing}>
-              {isProcessing ? 'Reading...' : 'Capture & Read'}
+              {isProcessing ? 'Processing...' : 'Capture & Read'}
             </button>
             <span className="hint">Use natural light and fill the frame with the contribution form.</span>
           </div>
@@ -386,7 +251,7 @@ function App() {
             <h2>Contribution form data</h2>
           </div>
           <div className="panel-actions">
-            <button className="ghost" onClick={exportExcel}>
+            <button className="ghost" onClick={exportExcel} disabled={!entries.length}>
               Export to Excel
             </button>
             <button className="secondary" onClick={clearEntries} disabled={!entries.length}>
@@ -403,23 +268,28 @@ function App() {
           <div className="table" role="table" aria-label="Captured contribution forms">
             <div className="table-head" role="row">
               <span>#</span>
-              <span>NAMES</span>
-              <span>DATE</span>
+              <span>NAME</span>
+              <span>EMAIL</span>
               <span>TELEPHONE</span>
-              <span>EMAIL ADDRESS</span>
+              <span>DATE</span>
+              <span>PAYMENT</span>
               <span>AMOUNT</span>
             </div>
             <div className="table-body">
-              {entries.map((row, idx) => (
-                <div className="table-row" role="row" key={row.id}>
-                  <span>{entries.length - idx}</span>
-                  <span>{row.names || '—'}</span>
-                  <span>{row.date || '—'}</span>
-                  <span>{row.telephone || '—'}</span>
-                  <span>{row.emailAddress || '—'}</span>
-                  <span>{row.amount || '—'}</span>
-                </div>
-              ))}
+              {entries.map((row, idx) => {
+                const s = row.structured || {}
+                return (
+                  <div className="table-row" role="row" key={row.id}>
+                    <span>{entries.length - idx}</span>
+                    <span>{formatField(s.name)}</span>
+                    <span>{formatField(s.email)}</span>
+                    <span>{formatField(s.telephone)}</span>
+                    <span>{formatField(s.date)}</span>
+                    <span>{formatField(s.paymentMethod)}</span>
+                    <span>{formatField(s.amount)}</span>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}

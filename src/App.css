@@ -229,8 +229,8 @@ label.secondary:hover {
 .table-head,
 .table-row {
   display: grid;
-  grid-template-columns: 64px 1.5fr 1fr 1.2fr 1.5fr 1.2fr;
-  gap: 10px;
+  grid-template-columns: 40px 1.2fr 1.5fr 120px 100px 100px 120px;
+  gap: 12px;
   padding: 12px 14px;
 }
 

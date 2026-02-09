@@ -1,0 +1,15 @@
+# Render Blueprint: one service (frontend + API)
+# Dashboard: https://dashboard.render.com → New → Blueprint
+# Add env var GEMINI_API_KEY in the service after deploy
+
+services:
+  - type: web
+    name: envelope-scanner
+    env: node
+    buildCommand: npm install && npm run build && cd server && npm install
+    startCommand: cd server && NODE_ENV=production node index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GEMINI_API_KEY
+        sync: false  # set manually in Render dashboard
