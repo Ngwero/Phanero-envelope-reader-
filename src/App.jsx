@@ -168,8 +168,41 @@ function SuperAdminDashboard({ onLogout }) {
   const [addLoading, setAddLoading] = useState(false)
   const [addError, setAddError] = useState('')
   const [addSuccess, setAddSuccess] = useState(null)
+  const [resetNumber, setResetNumber] = useState('')
+  const [resetLoading, setResetLoading] = useState(false)
+  const [resetError, setResetError] = useState('')
+  const [resetSuccess, setResetSuccess] = useState(null)
 
   const token = localStorage.getItem(AUTH_KEY)
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault()
+    setResetError('')
+    setResetSuccess(null)
+    setResetLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/admin/users/reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ number: resetNumber.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 401 || res.status === 403) {
+        onLogout()
+        return
+      }
+      if (!res.ok) {
+        setResetError(data.error || 'Failed to reset password')
+        return
+      }
+      setResetSuccess({ number: data.number, password: data.password })
+      setResetNumber('')
+    } catch {
+      setResetError('Network error. Try again.')
+    } finally {
+      setResetLoading(false)
+    }
+  }
 
   const handleAddUser = async (e) => {
     e.preventDefault()
@@ -271,6 +304,33 @@ function SuperAdminDashboard({ onLogout }) {
             </p>
           )}
           <p className="add-user-hint">A 5-digit password will be generated. Share it with the user.</p>
+        </div>
+        <div className="dashboard-add-user">
+          <h3 className="dashboard-subtitle">Reset password</h3>
+          <form onSubmit={handleResetPassword} className="add-user-form">
+            <label>
+              <span className="label-text">Phone number</span>
+              <input
+                type="text"
+                placeholder="e.g. 0753995292"
+                value={resetNumber}
+                onChange={(e) => setResetNumber(e.target.value)}
+                autoComplete="tel"
+                disabled={resetLoading}
+                required
+              />
+            </label>
+            <button type="submit" className="secondary" disabled={resetLoading}>
+              {resetLoading ? 'Resetting...' : 'Reset password'}
+            </button>
+          </form>
+          {resetError && <p className="error">{resetError}</p>}
+          {resetSuccess && (
+            <p className="add-success">
+              Password reset for <strong>{resetSuccess.number}</strong>. New password: <strong>{resetSuccess.password}</strong>
+            </p>
+          )}
+          <p className="add-user-hint">Generates a new 5-digit password. Use when a user forgets theirs.</p>
         </div>
         {loading ? (
           <p className="empty">Loading...</p>

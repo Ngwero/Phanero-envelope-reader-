@@ -323,6 +323,33 @@ app.post('/api/admin/users/add', requireSuperAdmin, async (req, res) => {
 });
 
 /**
+ * Reset user password from super admin dashboard. Body: { number }.
+ * Generates new 5-digit password. Returns { number, password }.
+ */
+app.post('/api/admin/users/reset', requireSuperAdmin, async (req, res) => {
+  try {
+    const { number } = req.body || {};
+    const normalized = String(number ?? '').trim().replace(/\s/g, '');
+    if (!normalized || normalized.length < 9) {
+      return res.status(400).json({ error: 'Valid phone number required' });
+    }
+    const users = readUsers();
+    const user = users.find((u) => u.number === normalized);
+    if (!user) {
+      return res.status(404).json({ error: 'Number not registered' });
+    }
+    const password = String(Math.floor(10000 + Math.random() * 90000));
+    const passwordHash = await bcrypt.hash(password, 10);
+    user.passwordHash = passwordHash;
+    writeUsers(users);
+    res.json({ ok: true, number: normalized, password });
+  } catch (err) {
+    console.error('Super admin reset password error:', err.message);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
+/**
  * Process image with Gemini vision: extract form fields (no Python OCR).
  * Requires auth.
  */
