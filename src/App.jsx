@@ -396,82 +396,116 @@ function App() {
     return false
   }
 
+  const processOneImage = async (dataUrl) => {
+    const response = await fetch(dataUrl)
+    const blob = await response.blob()
+    const formData = new FormData()
+    formData.append('image', blob, 'image.jpg')
+    const ocrResponse = await fetch(`${API_URL}/api/ocr`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: formData,
+    })
+    if (checkAuth(ocrResponse)) throw new Error('Session expired')
+    if (!ocrResponse.ok) {
+      const errorData = await ocrResponse.json().catch(() => ({}))
+      throw new Error(errorData.error || 'OCR processing failed')
+    }
+    const result = await ocrResponse.json()
+    if (!result.text || !result.text.trim()) {
+      throw new Error('No text detected. Ensure the form is well-lit and clearly visible.')
+    }
+    return {
+      id: Date.now() + Math.random(),
+      text: result.text,
+      structured: result.structured || {},
+      rawText: result.rawText || result.text,
+    }
+  }
+
   const processImage = async (dataUrl) => {
     setIsProcessing(true)
     setStatus('Processing image...')
     setError('')
     setProgress(10)
-
     try {
-      // Convert data URL to blob
-      const response = await fetch(dataUrl)
-      const blob = await response.blob()
-
-      setProgress(30)
-
-      // Send to Node.js backend
-      const formData = new FormData()
-      formData.append('image', blob, 'image.jpg')
-
       setProgress(50)
-
-      const ocrResponse = await fetch(`${API_URL}/api/ocr`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: formData,
-      })
-      if (checkAuth(ocrResponse)) {
-        setError('Session expired. Please log in again.')
-        return
-      }
-      if (!ocrResponse.ok) {
-        const errorData = await ocrResponse.json().catch(() => ({}))
-        throw new Error(errorData.error || 'OCR processing failed')
-      }
-
-      setProgress(80)
-
-      const result = await ocrResponse.json()
-
-      if (!result.text || !result.text.trim()) {
-        setStatus('No text detected. Try again with better lighting or clearer image.')
-        setError('No text detected. Ensure the form is well-lit and clearly visible.')
-        return
-      }
-
+      const entry = await processOneImage(dataUrl)
       setProgress(95)
-
-      // Store entry with structured data
-      const entry = {
-        id: Date.now(),
-        text: result.text,
-        structured: result.structured || {},
-        rawText: result.rawText || result.text,
-      }
-
       setEntries((prev) => [entry, ...prev])
       setStatus('Captured and added to the table.')
       setProgress(100)
     } catch (err) {
       const errorMsg = err.message || 'Scan failed. Try again or upload a photo.'
-      setError(errorMsg)
+      setError(err.message === 'Session expired' ? 'Session expired. Please log in again.' : errorMsg)
       setStatus(`Error: ${errorMsg}`)
-      console.error('OCR Processing Error:', err)
+      if (err.message === 'Session expired') logout()
     } finally {
       setIsProcessing(false)
       setTimeout(() => setProgress(0), 1000)
     }
   }
 
-  const handleUpload = (event) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = async () => {
-      await processImage(reader.result)
+  const processImagesBatch = async (dataUrls) => {
+    if (!dataUrls.length) return
+    const total = dataUrls.length
+    setIsProcessing(true)
+    setError('')
+    const added = []
+    const failed = []
+    for (let i = 0; i < total; i++) {
+      setStatus(`Processing image ${i + 1} of ${total}...`)
+      setProgress(Math.round(((i + 0.5) / total) * 100))
+      try {
+        const entry = await processOneImage(dataUrls[i])
+        added.push(entry)
+        setEntries((prev) => [entry, ...prev])
+      } catch (err) {
+        failed.push({ index: i + 1, message: err.message })
+        if (err.message === 'Session expired') {
+          setError('Session expired. Please log in again.')
+          logout()
+          return
+        }
+      }
     }
-    reader.readAsDataURL(file)
+    setProgress(100)
+    setStatus(added.length === total
+      ? `Added ${total} row${total === 1 ? '' : 's'} to the table.`
+      : `Added ${added.length} of ${total}. ${failed.length} failed.`)
+    if (failed.length) {
+      setError(failed.map((f) => `Image ${f.index}: ${f.message}`).join('; '))
+    }
+    setIsProcessing(false)
+    setTimeout(() => setProgress(0), 1000)
+  }
+
+  const handleUpload = (event) => {
+    const files = event.target.files
+    if (!files?.length) return
+    const fileList = Array.from(files)
     event.target.value = ''
+    if (fileList.length === 1) {
+      const reader = new FileReader()
+      reader.onload = async () => {
+        await processImage(reader.result)
+      }
+      reader.readAsDataURL(fileList[0])
+      return
+    }
+    let loaded = 0
+    const dataUrls = []
+    fileList.forEach((file) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        dataUrls.push(reader.result)
+        loaded++
+        if (loaded === fileList.length) {
+          processImagesBatch(dataUrls)
+        }
+      }
+      reader.readAsDataURL(file)
+    })
   }
 
   const exportExcel = async () => {
@@ -545,6 +579,16 @@ function App() {
     return value || '—'
   }
 
+  const updateEntryField = (entryId, field, value) => {
+    setEntries((prev) =>
+      prev.map((entry) =>
+        entry.id === entryId
+          ? { ...entry, structured: { ...(entry.structured || {}), [field]: value } }
+          : entry
+      )
+    )
+  }
+
   if (!token) {
     if (view === 'superAdminLogin') {
       return (
@@ -610,12 +654,13 @@ function App() {
               type="file"
               accept="image/*"
               capture="environment"
+              multiple
               onChange={handleUpload}
               style={{ display: 'none' }}
             />
             <label className="secondary">
               Upload from gallery
-              <input type="file" accept="image/*" onChange={handleUpload} disabled={isProcessing} hidden />
+              <input type="file" accept="image/*" multiple onChange={handleUpload} disabled={isProcessing} hidden />
             </label>
           </div>
           <p className="status">
@@ -623,7 +668,7 @@ function App() {
             {isProcessing && progress > 0 ? ` – ${progress}%` : ''}
           </p>
           {error && <p className="error">{error}</p>}
-          <p className="hint hero-hint">On your phone, “Take a photo” opens the camera app. Use natural light and fill the frame with the form.</p>
+          <p className="hint hero-hint">On your phone, “Take a photo” opens the camera app. Use “Upload from gallery” to select multiple images at once; all will be processed in order.</p>
         </div>
       </header>
 
@@ -665,14 +710,63 @@ function App() {
                 const s = row.structured || {}
                 return (
                   <div className="table-row" role="row" key={row.id}>
-                    <span>{entries.length - idx}</span>
-                    <span>{formatField(s.name)}</span>
-                    <span>{formatField(s.email)}</span>
-                    <span>{formatField(s.telephone)}</span>
-                    <span>{formatField(s.date)}</span>
-                    <span>{formatField(s.contributionType)}</span>
-                    <span>{formatField(s.paymentMethod)}</span>
-                    <span>{formatField(s.amount)}</span>
+                    <span className="table-cell-index">{entries.length - idx}</span>
+                    <span className="table-cell-edit">
+                      <input
+                        type="text"
+                        value={s.name ?? ''}
+                        onChange={(e) => updateEntryField(row.id, 'name', e.target.value)}
+                        aria-label="Name"
+                      />
+                    </span>
+                    <span className="table-cell-edit">
+                      <input
+                        type="text"
+                        value={s.email ?? ''}
+                        onChange={(e) => updateEntryField(row.id, 'email', e.target.value)}
+                        aria-label="Email"
+                      />
+                    </span>
+                    <span className="table-cell-edit">
+                      <input
+                        type="text"
+                        value={s.telephone ?? ''}
+                        onChange={(e) => updateEntryField(row.id, 'telephone', e.target.value)}
+                        aria-label="Telephone"
+                      />
+                    </span>
+                    <span className="table-cell-edit">
+                      <input
+                        type="text"
+                        value={s.date ?? ''}
+                        onChange={(e) => updateEntryField(row.id, 'date', e.target.value)}
+                        aria-label="Date"
+                      />
+                    </span>
+                    <span className="table-cell-edit">
+                      <input
+                        type="text"
+                        value={s.contributionType ?? ''}
+                        onChange={(e) => updateEntryField(row.id, 'contributionType', e.target.value)}
+                        aria-label="Type"
+                      />
+                    </span>
+                    <span className="table-cell-edit">
+                      <input
+                        type="text"
+                        value={s.paymentMethod ?? ''}
+                        onChange={(e) => updateEntryField(row.id, 'paymentMethod', e.target.value)}
+                        aria-label="Payment"
+                      />
+                    </span>
+                    <span className="table-cell-edit">
+                      <input
+                        type="text"
+                        value={s.amount ?? ''}
+                        onChange={(e) => updateEntryField(row.id, 'amount', e.target.value)}
+                        aria-label="Amount"
+                      />
+                    </span>
                   </div>
                 )
               })}

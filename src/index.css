@@ -19,6 +19,8 @@
 body {
   margin: 0;
   min-height: 100vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   background: radial-gradient(circle at 20% 20%, rgba(136, 199, 48, 0.18), transparent 36%),
     radial-gradient(circle at 80% 0%, rgba(250, 161, 28, 0.14), transparent 30%),
     linear-gradient(135deg, #0b1006 0%, #0f1409 100%);

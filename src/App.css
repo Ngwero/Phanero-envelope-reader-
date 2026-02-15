@@ -503,6 +503,37 @@ label.secondary:hover {
   white-space: nowrap;
 }
 
+.table-cell-index {
+  font-variant-numeric: tabular-nums;
+}
+
+.table-cell-edit {
+  padding: 0;
+  min-width: 0;
+}
+
+.table-cell-edit input {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f4f7ec;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+.table-cell-edit input:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.table-cell-edit input:focus {
+  outline: none;
+  border-color: #88c730;
+  background: rgba(32, 44, 23, 0.6);
+}
+
 .table-row .raw {
   white-space: normal;
   line-height: 1.4;
@@ -549,13 +580,16 @@ label.secondary:hover {
   }
 }
 
-/* Small: card layout per row, no horizontal scroll */
+/* Small: card layout per row, vertically scrollable list */
 @media (max-width: 600px) {
   .table-wrap {
-    overflow: visible;
+    overflow-y: auto;
+    overflow-x: visible;
     margin-left: 0;
     margin-right: 0;
     padding: 0;
+    max-height: 65vh;
+    -webkit-overflow-scrolling: touch;
   }
   .table {
     min-width: 0;
