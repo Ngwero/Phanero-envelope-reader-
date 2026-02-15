@@ -5,3 +5,4 @@ dist
 .env
 *.env.local
 ocr_service
+server/data/users.json

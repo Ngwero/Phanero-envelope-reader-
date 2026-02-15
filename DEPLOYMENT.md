@@ -34,8 +34,16 @@ One URL, simplest.
    |-----|--------|
    | `GEMINI_API_KEY` | your key from [aistudio.google.com](https://aistudio.google.com/app/apikey) |
    | `NODE_ENV` | `production` |
+   | `JWT_SECRET` | a long random string (e.g. `openssl rand -hex 32`) |
+   | `ADMIN_SECRET` | secret only you know; used to add users via `POST /api/admin/users` |
+   | `SEED_USER_NUMBER` | (optional) first login number, e.g. `0753995292` |
+   | `SEED_USER_PASSWORD` | (optional) password for that first user |
+   | `SUPER_ADMIN_NUMBERS` | (optional) comma-separated numbers that can access the super admin dashboard, e.g. `0705161161,0753995292` |
 
-6. Deploy. Your app will be at `https://<your-service>.onrender.com`.
+   If you set `SEED_USER_NUMBER` and `SEED_USER_PASSWORD`, the first user is created on first deploy. Super admins log in from the "Super admin" button on the login page to see processing stats. Otherwise add users with:  
+   `curl -X POST https://your-app.onrender.com/api/admin/users -H "Content-Type: application/json" -d '{"adminSecret":"YOUR_ADMIN_SECRET","number":"0753995292","password":"their-password"}'`
+
+6. Deploy. Your app will be at `https://<your-service>.onrender.com`. Users open the URL → Log in (number + password) → use the scanner.
 
 **Notes:**
 - Do not set `VITE_API_URL` so the frontend uses the same origin for `/api`.
@@ -118,9 +126,13 @@ Use if you want a static frontend (e.g. CDN) and API on its own URL.
 
 | Variable | Where | Required |
 |----------|--------|----------|
-| `GEMINI_API_KEY` | Server (Render/Railway/VPS) | Yes |
-| `NODE_ENV` | Server (set to `production` for single-service deploy) | For single-service |
-| `VITE_API_URL` | Build-time for frontend (only when API is on a different URL) | Only for split deploy |
+| `GEMINI_API_KEY` | Server | Yes |
+| `JWT_SECRET` | Server (long random string for signing tokens) | Yes in production |
+| `ADMIN_SECRET` | Server (secret to add users via `/api/admin/users`) | Yes to add users |
+| `SEED_USER_NUMBER` | Server (first user’s number) | Optional |
+| `SEED_USER_PASSWORD` | Server (first user’s password) | Optional (with above) |
+| `NODE_ENV` | Server (`production` for single-service deploy) | For single-service |
+| `VITE_API_URL` | Build-time (only when API is on a different URL) | Only for split deploy |
 | `PORT` | Server (Render/Railway set automatically) | Optional |
 
 ---
