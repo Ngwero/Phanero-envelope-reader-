@@ -13,3 +13,7 @@ services:
         value: production
       - key: GEMINI_API_KEY
         sync: false  # set manually in Render dashboard
+      - key: SEED_USER_NUMBER
+        value: "0705161161"
+      - key: SEED_USER_PASSWORD
+        sync: false  # set in Render dashboard, e.g. Phaneroo2026
