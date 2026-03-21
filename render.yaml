@@ -8,9 +8,15 @@ services:
     env: node
     buildCommand: npm install --include=dev && npm run build && cd server && npm install
     startCommand: cd server && NODE_ENV=production node index.js
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
+      - key: DATA_DIR
+        value: /var/data
       - key: GEMINI_API_KEY
         sync: false  # set manually in Render dashboard
       - key: SEED_USER_NUMBER

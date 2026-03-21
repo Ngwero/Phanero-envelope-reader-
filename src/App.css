@@ -181,6 +181,10 @@
   background: rgba(22, 32, 12, 0.5);
 }
 
+.dashboard-table-users {
+  grid-template-columns: 1.2fr auto auto;
+}
+
 .dashboard-table .table-head,
 .dashboard-table .table-row {
   display: contents;

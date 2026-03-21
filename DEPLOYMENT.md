@@ -38,6 +38,8 @@ One URL, simplest.
    | `ADMIN_SECRET` | secret only you know; used to add users via `POST /api/admin/users` |
    | `SEED_USER_NUMBER` | (optional) first login number, e.g. `0753995292` |
    | `SEED_USER_PASSWORD` | (optional) password for that first user |
+   | `SEED_USER_NAME` | (optional) display name for the seeded user |
+   | `DATA_DIR` | **Use on Render:** path to a **persistent disk** (e.g. `/var/data`) so `users.json` and `stats.json` survive redeploys. See `render.yaml` disk example. |
    | `SUPER_ADMIN_NUMBERS` | (optional) comma-separated numbers that can access the super admin dashboard, e.g. `0705161161,0753995292` |
    | `GOOGLE_SHEETS_SPREADSHEET_ID` | (optional) append each scan to this Sheet — see `GOOGLE_SHEETS_SETUP.md` |
    | `GOOGLE_SERVICE_ACCOUNT_JSON` | (optional) service account JSON (one line or Base64) for Sheets API |

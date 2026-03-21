@@ -48,7 +48,10 @@ function log(line) {
   process.stdout.write(entry + '\n');
 }
 
-const DATA_DIR = path.join(__dirname, 'data');
+/** Persist users & stats here. On Render, set DATA_DIR to a persistent disk mount (e.g. /var/data). */
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const STATS_FILE = path.join(DATA_DIR, 'stats.json');
 
@@ -270,8 +273,11 @@ app.post('/api/admin/users', async (req, res) => {
     if (users.some((u) => u.number === normalized)) {
       return res.status(400).json({ error: 'Number already registered' });
     }
+    const displayName = String(req.body.name ?? '')
+      .trim()
+      .slice(0, 120);
     const passwordHash = await bcrypt.hash(password, 10);
-    users.push({ number: normalized, passwordHash });
+    users.push({ number: normalized, passwordHash, name: displayName || undefined });
     writeUsers(users);
     res.json({ ok: true, number: normalized });
   } catch (err) {
@@ -288,6 +294,19 @@ app.get('/api/logs', requireAuth, (req, res) => {
 });
 
 /**
+ * List users (number + name, no secrets). Super admin only.
+ */
+app.get('/api/admin/users', requireSuperAdmin, (req, res) => {
+  const users = readUsers();
+  res.json({
+    users: users.map((u) => ({
+      number: u.number,
+      name: u.name || '',
+    })),
+  });
+});
+
+/**
  * Dashboard stats: total pictures processed, by user number. Super admin only.
  */
 app.get('/api/admin/dashboard', requireSuperAdmin, (req, res) => {
@@ -299,13 +318,19 @@ app.get('/api/admin/dashboard', requireSuperAdmin, (req, res) => {
 });
 
 /**
- * Add user from super admin dashboard. Body: { number }.
- * System generates a 5-digit password. Returns { number, password }.
+ * Add user from super admin dashboard. Body: { number, name }.
+ * System generates a 5-digit password. Returns { number, password, name }.
  */
 app.post('/api/admin/users/add', requireSuperAdmin, async (req, res) => {
   try {
-    const { number } = req.body || {};
+    const { number, name } = req.body || {};
     const normalized = String(number ?? '').trim().replace(/\s/g, '');
+    const displayName = String(name ?? '')
+      .trim()
+      .slice(0, 120);
+    if (!displayName) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
     if (!normalized || normalized.length < 9) {
       return res.status(400).json({ error: 'Valid phone number required' });
     }
@@ -315,9 +340,9 @@ app.post('/api/admin/users/add', requireSuperAdmin, async (req, res) => {
     }
     const password = String(Math.floor(10000 + Math.random() * 90000));
     const passwordHash = await bcrypt.hash(password, 10);
-    users.push({ number: normalized, passwordHash });
+    users.push({ number: normalized, passwordHash, name: displayName });
     writeUsers(users);
-    res.json({ ok: true, number: normalized, password });
+    res.json({ ok: true, number: normalized, password, name: displayName });
   } catch (err) {
     console.error('Super admin add user error:', err.message);
     res.status(500).json({ error: 'Failed to add user' });
@@ -480,7 +505,7 @@ if (isProduction) {
   });
 }
 
-// Optional: seed first user from env. Default number 0705161161; set SEED_USER_PASSWORD (and optionally SEED_USER_NUMBER).
+// Optional: seed first user from env. Default number 0705161161; set SEED_USER_PASSWORD (and optionally SEED_USER_NUMBER, SEED_USER_NAME).
 async function seedUserIfNeeded() {
   const users = readUsers();
   if (users.length > 0) return;
@@ -488,14 +513,17 @@ async function seedUserIfNeeded() {
   const pwd = process.env.SEED_USER_PASSWORD;
   if (!pwd) return;
   const passwordHash = await bcrypt.hash(pwd, 10);
-  writeUsers([{ number: num, passwordHash }]);
-  console.log('Seeded first user:', num);
+  const seedName = String(process.env.SEED_USER_NAME ?? '').trim().slice(0, 120);
+  const row = seedName ? { number: num, passwordHash, name: seedName } : { number: num, passwordHash };
+  writeUsers([row]);
+  console.log('Seeded first user:', num, seedName ? `(${seedName})` : '');
 }
 
 (async () => {
   await seedUserIfNeeded();
   app.listen(PORT, () => {
     console.log(`Node.js server running on http://localhost:${PORT}`);
+    console.log(`Data directory (users & stats): ${DATA_DIR}`);
     if (GEMINI_API_KEY) {
       console.log('Gemini vision enabled: image → form data (no Python OCR needed).');
     } else {

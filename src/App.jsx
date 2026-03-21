@@ -163,6 +163,7 @@ function SuperAdminDashboard({ onLogout }) {
   const [stats, setStats] = useState({ total: 0, byNumber: {} })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [addName, setAddName] = useState('')
   const [addNumber, setAddNumber] = useState('')
   const [addLoading, setAddLoading] = useState(false)
   const [addError, setAddError] = useState('')
@@ -171,6 +172,7 @@ function SuperAdminDashboard({ onLogout }) {
   const [resetLoading, setResetLoading] = useState(false)
   const [resetError, setResetError] = useState('')
   const [resetSuccess, setResetSuccess] = useState(null)
+  const [userNames, setUserNames] = useState({})
 
   const token = localStorage.getItem(AUTH_KEY)
 
@@ -212,7 +214,7 @@ function SuperAdminDashboard({ onLogout }) {
       const res = await fetch(`${API_URL}/api/admin/users/add`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ number: addNumber.trim() }),
+        body: JSON.stringify({ number: addNumber.trim(), name: addName.trim() }),
       })
       const data = await res.json().catch(() => ({}))
       if (res.status === 401 || res.status === 403) {
@@ -223,8 +225,10 @@ function SuperAdminDashboard({ onLogout }) {
         setAddError(data.error || 'Failed to add user')
         return
       }
-      setAddSuccess({ number: data.number, password: data.password })
+      setAddSuccess({ number: data.number, password: data.password, name: data.name })
       setAddNumber('')
+      setAddName('')
+      setUserNames((prev) => ({ ...prev, [data.number]: data.name || '—' }))
     } catch {
       setAddError('Network error. Try again.')
     } finally {
@@ -235,19 +239,32 @@ function SuperAdminDashboard({ onLogout }) {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/admin/dashboard`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (res.status === 401 || res.status === 403) {
+        const [dashRes, usersRes] = await Promise.all([
+          fetch(`${API_URL}/api/admin/dashboard`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_URL}/api/admin/users`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ])
+        if (dashRes.status === 401 || dashRes.status === 403) {
           onLogout()
           return
         }
-        if (!res.ok) {
+        if (!dashRes.ok) {
           setError('Failed to load dashboard')
           return
         }
-        const data = await res.json()
+        const data = await dashRes.json()
         setStats({ total: data.total || 0, byNumber: data.byNumber || {} })
+        if (usersRes.ok) {
+          const u = await usersRes.json()
+          const map = {}
+          ;(u.users || []).forEach((row) => {
+            map[row.number] = row.name || '—'
+          })
+          setUserNames(map)
+        }
       } catch {
         setError('Failed to load dashboard')
       } finally {
@@ -281,6 +298,18 @@ function SuperAdminDashboard({ onLogout }) {
           <h3 className="dashboard-subtitle">Add user</h3>
           <form onSubmit={handleAddUser} className="add-user-form">
             <label>
+              <span className="label-text">Full name</span>
+              <input
+                type="text"
+                placeholder="e.g. Jane Mukasa"
+                value={addName}
+                onChange={(e) => setAddName(e.target.value)}
+                autoComplete="name"
+                disabled={addLoading}
+                required
+              />
+            </label>
+            <label>
               <span className="label-text">Phone number</span>
               <input
                 type="text"
@@ -299,7 +328,8 @@ function SuperAdminDashboard({ onLogout }) {
           {addError && <p className="error">{addError}</p>}
           {addSuccess && (
             <p className="add-success">
-              User <strong>{addSuccess.number}</strong> added. Password: <strong>{addSuccess.password}</strong>
+              <strong>{addSuccess.name}</strong> ({addSuccess.number}) added. Password:{' '}
+              <strong>{addSuccess.password}</strong>
             </p>
           )}
           <p className="add-user-hint">A 5-digit password will be generated. Share it with the user.</p>
@@ -345,13 +375,15 @@ function SuperAdminDashboard({ onLogout }) {
               {entries.length === 0 ? (
                 <p className="empty">No data yet.</p>
               ) : (
-                <div className="dashboard-table">
+                <div className="dashboard-table dashboard-table-users">
                   <div className="table-head" role="row">
+                    <span>Name</span>
                     <span>Number</span>
                     <span>Count</span>
                   </div>
                   {entries.map(([num, count]) => (
                     <div className="table-row" role="row" key={num}>
+                      <span>{userNames[num] || '—'}</span>
                       <span>{num}</span>
                       <span>{count}</span>
                     </div>
