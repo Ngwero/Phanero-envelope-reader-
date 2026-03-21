@@ -6,4 +6,6 @@ dist
 *.env.local
 ocr_service
 server/data/
+*-service-account*.json
+google-credentials.json
 USERS.md

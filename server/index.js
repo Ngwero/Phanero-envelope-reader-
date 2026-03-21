@@ -15,6 +15,7 @@ import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { GoogleGenAI } from '@google/genai';
+import { appendEntriesToSheet, isSheetsConfigured } from './sheets.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -214,6 +215,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     geminiUsed: !!GEMINI_API_KEY,
+    sheetsAppend: isSheetsConfigured(),
   });
 });
 
@@ -397,6 +399,31 @@ app.post('/api/ocr', requireAuth, upload.single('image'), async (req, res) => {
     log(`[OCR] Error: ${error.message}`);
     console.error('OCR Error:', error.message);
     res.status(500).json({ error: error.message || 'Processing failed' });
+  }
+});
+
+/**
+ * Push current table rows to Google Sheets. Requires auth.
+ */
+app.post('/api/sheets/push', requireAuth, async (req, res) => {
+  try {
+    const { entries } = req.body || {};
+    if (!entries || !Array.isArray(entries) || entries.length === 0) {
+      return res.status(400).json({ error: 'No entries provided' });
+    }
+    const result = await appendEntriesToSheet(entries, req.user.number);
+    if (result.skipped) {
+      return res.status(503).json({ error: `Google Sheets not configured: ${result.reason}` });
+    }
+    if (result.error) {
+      log(`[Sheets] Push failed: ${result.error}`);
+      return res.status(502).json({ error: result.error });
+    }
+    log(`[Sheets] Pushed ${result.appended} row(s) for user ${req.user.number}`);
+    res.json({ ok: true, appended: result.appended });
+  } catch (err) {
+    console.error('Sheets push error:', err.message);
+    res.status(500).json({ error: 'Failed to push to Google Sheets' });
   }
 });
 

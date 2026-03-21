@@ -39,8 +39,13 @@ One URL, simplest.
    | `SEED_USER_NUMBER` | (optional) first login number, e.g. `0753995292` |
    | `SEED_USER_PASSWORD` | (optional) password for that first user |
    | `SUPER_ADMIN_NUMBERS` | (optional) comma-separated numbers that can access the super admin dashboard, e.g. `0705161161,0753995292` |
+   | `GOOGLE_SHEETS_SPREADSHEET_ID` | (optional) append each scan to this Sheet — see `GOOGLE_SHEETS_SETUP.md` |
+   | `GOOGLE_SERVICE_ACCOUNT_JSON` | (optional) service account JSON (one line or Base64) for Sheets API |
+   | `GOOGLE_SHEETS_TAB_NAME` | (optional) tab name; default `Sheet1` |
 
-   If you set `SEED_USER_NUMBER` and `SEED_USER_PASSWORD`, the first user is created on first deploy. Super admins log in from the "Super admin" button on the login page to see processing stats. Otherwise add users with:  
+   If you set `SEED_USER_NUMBER` and `SEED_USER_PASSWORD`, the first user is created on first deploy. Super admins log in from the "Super admin" button on the login page to see processing stats.
+
+   **Google Sheets:** Users click **Push data** to append table rows to a Sheet. Configure with `GOOGLE_SHEETS_SETUP.md`. `GET /health` returns `sheetsAppend: true` when Sheet ID + credentials are valid. Otherwise add users with:  
    `curl -X POST https://your-app.onrender.com/api/admin/users -H "Content-Type: application/json" -d '{"adminSecret":"YOUR_ADMIN_SECRET","number":"0753995292","password":"their-password"}'`
 
 6. Deploy. Your app will be at `https://<your-service>.onrender.com`. Users open the URL → Log in (number + password) → use the scanner.

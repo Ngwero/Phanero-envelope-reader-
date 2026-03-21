@@ -379,6 +379,7 @@ function App() {
   const [status, setStatus] = useState('Ready to scan')
   const [entries, setEntries] = useState([])
   const [error, setError] = useState('')
+  const [pushSheetsLoading, setPushSheetsLoading] = useState(false)
 
   const logout = () => {
     localStorage.removeItem(AUTH_KEY)
@@ -568,6 +569,43 @@ function App() {
     }
   }
 
+  const pushToSheets = async () => {
+    if (!entries.length) {
+      setStatus('Nothing to push yet.')
+      return
+    }
+    setPushSheetsLoading(true)
+    setError('')
+    setStatus('Pushing to Google Sheet...')
+    try {
+      const response = await fetch(`${API_URL}/api/sheets/push`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(),
+        },
+        body: JSON.stringify({ entries }),
+      })
+      if (checkAuth(response)) {
+        setError('Session expired. Please log in again.')
+        setStatus('Session expired.')
+        return
+      }
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        setError(data.error || 'Push to Google Sheet failed')
+        setStatus('Push failed.')
+        return
+      }
+      setStatus(`Pushed ${data.appended} row${data.appended === 1 ? '' : 's'} to Google Sheet.`)
+    } catch {
+      setError('Network error. Try again.')
+      setStatus('Push failed.')
+    } finally {
+      setPushSheetsLoading(false)
+    }
+  }
+
   const clearEntries = () => {
     setEntries([])
     setStatus('Cleared all rows.')
@@ -679,10 +717,18 @@ function App() {
             <h2>Contribution form data</h2>
           </div>
           <div className="panel-actions">
-            <button className="ghost" onClick={exportExcel} disabled={!entries.length}>
+            <button className="ghost" onClick={exportExcel} disabled={!entries.length || pushSheetsLoading}>
               Export to Excel
             </button>
-            <button className="secondary" onClick={clearEntries} disabled={!entries.length}>
+            <button
+              type="button"
+              className="primary"
+              onClick={pushToSheets}
+              disabled={!entries.length || pushSheetsLoading || isProcessing}
+            >
+              {pushSheetsLoading ? 'Pushing…' : 'Push data'}
+            </button>
+            <button className="secondary" onClick={clearEntries} disabled={!entries.length || pushSheetsLoading}>
               Clear
             </button>
           </div>
