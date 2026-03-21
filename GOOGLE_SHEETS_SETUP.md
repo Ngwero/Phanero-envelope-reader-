@@ -35,15 +35,19 @@ Set on your machine (`server/.env`) and on **Render** (or your host):
 | `GOOGLE_SHEETS_SPREADSHEET_ID` | The ID from the sheet URL (required for Sheets). |
 | `GOOGLE_SHEETS_TAB_NAME` | Tab name; default `Sheet1` if omitted. |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | **Entire** service account JSON as **one line** (or Base64-encoded JSON for easier paste in dashboards). |
-| `GOOGLE_APPLICATION_CREDENTIALS` | *(Alternative, local only)* Absolute path to the downloaded `.json` file. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | *(Local)* Path to JSON file. Easiest: put the file at **`server/sheets-credentials.json`** and set `GOOGLE_APPLICATION_CREDENTIALS=./sheets-credentials.json` in `server/.env` (see `server/SHEETS_KEY_INSTRUCTIONS.md`). |
 
-**Render tip:** Minify the JSON (remove line breaks) and paste as one line into `GOOGLE_SERVICE_ACCOUNT_JSON`. If the dashboard breaks on quotes, Base64-encode the file and paste the Base64 string (the server accepts both).
+**Render tip:** Save the same JSON in **`server/sheets-credentials.json`** locally, then run:
+
+`cd server && node scripts/print-google-json-for-render.mjs`
+
+Copy the **one line** it prints into `GOOGLE_SERVICE_ACCOUNT_JSON`. The server also accepts Base64 of that JSON if Render’s field prefers it.
 
 ## 4. Behaviour
 
 - **Push data** calls `POST /api/sheets/push` with the current table rows. If Sheets is not configured, the user sees an error message.
 - If append fails (permissions, wrong ID), the API returns an error and the status line shows it.
 
-## 5. Excel export
+## 5. Data flow
 
-**Export to Excel** is separate — download a file anytime. **Push data** only updates Google Sheets.
+Use **Push data** to send the current table to Google Sheets. There is no in-app Excel download.

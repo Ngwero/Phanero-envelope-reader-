@@ -8,4 +8,5 @@ ocr_service
 server/data/
 *-service-account*.json
 google-credentials.json
+server/sheets-credentials.json
 USERS.md

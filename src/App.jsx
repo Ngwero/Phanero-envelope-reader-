@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import * as XLSX from 'xlsx'
 import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
@@ -509,66 +508,6 @@ function App() {
     })
   }
 
-  const exportExcel = async () => {
-    if (!entries.length) {
-      setStatus('Nothing to export yet.')
-      return
-    }
-
-    try {
-      // Send entries to backend for Excel export
-      const response = await fetch(`${API_URL}/api/export`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders(),
-        },
-        body: JSON.stringify({ entries }),
-      })
-      if (checkAuth(response)) {
-        setError('Session expired. Please log in again.')
-        return
-      }
-      if (!response.ok) {
-        throw new Error('Export failed')
-      }
-
-      // Download file
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'phaneroo-extracted-data.xlsx'
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-
-      setStatus('Excel file downloaded.')
-    } catch (err) {
-      // Fallback to client-side export (without department and title columns)
-      const worksheetData = entries.map((entry, index) => {
-        const s = entry.structured || {}
-        return {
-          '#': index + 1,
-          Name: s.name || '',
-          Email: s.email || '',
-          Telephone: s.telephone || '',
-          Date: s.date || '',
-          'Contribution Type': s.contributionType || '',
-          'Payment Method': s.paymentMethod || '',
-          Amount: s.amount || '',
-        }
-      })
-
-      const worksheet = XLSX.utils.json_to_sheet(worksheetData)
-      const workbook = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Extracted Data')
-      XLSX.writeFile(workbook, 'phaneroo-extracted-data.xlsx')
-      setStatus('Excel file created.')
-    }
-  }
-
   const pushToSheets = async () => {
     if (!entries.length) {
       setStatus('Nothing to push yet.')
@@ -717,9 +656,6 @@ function App() {
             <h2>Contribution form data</h2>
           </div>
           <div className="panel-actions">
-            <button className="ghost" onClick={exportExcel} disabled={!entries.length || pushSheetsLoading}>
-              Export to Excel
-            </button>
             <button
               type="button"
               className="primary"
