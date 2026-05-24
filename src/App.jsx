@@ -3,6 +3,20 @@ import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 const AUTH_KEY = 'phaneroo_token'
+const VIEW_KEY = 'phaneroo_view'
+
+function getInitialView() {
+  if (!localStorage.getItem(AUTH_KEY)) return 'login'
+  return localStorage.getItem(VIEW_KEY) === 'superAdminDashboard' ? 'superAdminDashboard' : 'app'
+}
+
+function persistView(view) {
+  if (view === 'app' || view === 'superAdminDashboard') {
+    localStorage.setItem(VIEW_KEY, view)
+  } else {
+    localStorage.removeItem(VIEW_KEY)
+  }
+}
 
 function LoginPage({ onLogin, loginError, setLoginError, onNavigateToSuperAdmin }) {
   const [number, setNumber] = useState('')
@@ -84,26 +98,109 @@ function LoginPage({ onLogin, loginError, setLoginError, onNavigateToSuperAdmin 
 function SuperAdminLoginPage({ onLogin, onBack }) {
   const [number, setNumber] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [needsSetup, setNeedsSetup] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(null)
+  const [checking, setChecking] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    const normalized = number.trim().replace(/\s/g, '')
+    if (normalized.length < 9) {
+      setNeedsSetup(false)
+      setIsSuperAdmin(null)
+      return undefined
+    }
+    let cancelled = false
+    setChecking(true)
+    setError('')
+    ;(async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/super-admin/check`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ number: normalized }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (cancelled) return
+        if (!data.isSuperAdmin) {
+          setIsSuperAdmin(false)
+          setNeedsSetup(false)
+        } else {
+          setIsSuperAdmin(true)
+          setNeedsSetup(!!data.needsPasswordSetup)
+        }
+      } catch {
+        if (!cancelled) {
+          setIsSuperAdmin(null)
+          setNeedsSetup(false)
+        }
+      } finally {
+        if (!cancelled) setChecking(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [number])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    const normalized = number.trim().replace(/\s/g, '')
+    if (isSuperAdmin === false) {
+      setError('Not a super admin. Use the main login.')
+      return
+    }
+    if (needsSetup) {
+      if (password.length < 4) {
+        setError('Password must be at least 4 characters')
+        return
+      }
+      if (password !== confirmPassword) {
+        setError('Passwords do not match')
+        return
+      }
+      setLoading(true)
+      try {
+        const res = await fetch(`${API_URL}/api/super-admin/setup-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ number: normalized, password }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          setError(data.error || 'Failed to set password')
+          return
+        }
+        if (data.token) onLogin(data.token)
+      } catch {
+        setError('Network error. Try again.')
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
     setLoading(true)
     try {
       const res = await fetch(`${API_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ number: number.trim(), password }),
+        body: JSON.stringify({ number: normalized, password }),
       })
       const data = await res.json().catch(() => ({}))
+      if (data.needsPasswordSetup) {
+        setNeedsSetup(true)
+        setError('Set your password below — first-time setup for this number.')
+        return
+      }
       if (!res.ok) {
         setError(data.error || 'Login failed')
         return
       }
       if (data.isSuperAdmin && data.token) {
-        onLogin(data.token, { isSuperAdmin: true })
+        onLogin(data.token)
       } else {
         setError('Not a super admin. Use the main login.')
       }
@@ -114,6 +211,10 @@ function SuperAdminLoginPage({ onLogin, onBack }) {
     }
   }
 
+  const lede = needsSetup
+    ? 'First time here? Choose a password for your super admin number.'
+    : 'Enter your number and password to access the dashboard.'
+
   return (
     <div className="page login-page">
       <div className="login-card">
@@ -121,34 +222,76 @@ function SuperAdminLoginPage({ onLogin, onBack }) {
           <span className="brand-dot" />
           <span>Super Admin</span>
         </div>
-        <h1>Super admin login</h1>
-        <p className="login-lede">Enter your number and password to access the dashboard.</p>
+        <h1>{needsSetup ? 'Set your password' : 'Super admin login'}</h1>
+        <p className="login-lede">{lede}</p>
         <form onSubmit={handleSubmit} className="login-form">
           <label>
             <span className="label-text">Number</span>
             <input
               type="text"
-              placeholder="e.g. 0753995292"
+              placeholder="e.g. 0703492020"
               value={number}
-              onChange={(e) => setNumber(e.target.value)}
+              onChange={(e) => {
+                setNumber(e.target.value)
+                setPassword('')
+                setConfirmPassword('')
+              }}
               autoComplete="tel"
               required
             />
           </label>
-          <label>
-            <span className="label-text">Password</span>
-            <input
-              type="password"
-              placeholder="Your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-            />
-          </label>
+          {checking && number.trim().replace(/\s/g, '').length >= 9 && (
+            <p className="login-hint">Checking number…</p>
+          )}
+          {needsSetup ? (
+            <>
+              <label>
+                <span className="label-text">New password</span>
+                <input
+                  type="password"
+                  placeholder="At least 4 characters"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="new-password"
+                  required
+                  minLength={4}
+                />
+              </label>
+              <label>
+                <span className="label-text">Confirm password</span>
+                <input
+                  type="password"
+                  placeholder="Re-enter password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  autoComplete="new-password"
+                  required
+                  minLength={4}
+                />
+              </label>
+            </>
+          ) : (
+            <label>
+              <span className="label-text">Password</span>
+              <input
+                type="password"
+                placeholder="Your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </label>
+          )}
           {error && <p className="error">{error}</p>}
-          <button type="submit" className="primary" disabled={loading}>
-            {loading ? 'Logging in...' : 'Log in'}
+          <button type="submit" className="primary" disabled={loading || checking}>
+            {loading
+              ? needsSetup
+                ? 'Saving...'
+                : 'Logging in...'
+              : needsSetup
+                ? 'Set password & log in'
+                : 'Log in'}
           </button>
           <button type="button" className="ghost super-admin-btn" onClick={onBack}>
             Back to main login
@@ -173,8 +316,19 @@ function SuperAdminDashboard({ onLogout }) {
   const [resetError, setResetError] = useState('')
   const [resetSuccess, setResetSuccess] = useState(null)
   const [userNames, setUserNames] = useState({})
+  const [registeredUsers, setRegisteredUsers] = useState([])
 
   const token = localStorage.getItem(AUTH_KEY)
+
+  const applyUsersList = (users) => {
+    const list = users || []
+    setRegisteredUsers(list)
+    const map = {}
+    list.forEach((row) => {
+      map[row.number] = row.name || '—'
+    })
+    setUserNames(map)
+  }
 
   const handleResetPassword = async (e) => {
     e.preventDefault()
@@ -197,6 +351,11 @@ function SuperAdminDashboard({ onLogout }) {
         return
       }
       setResetSuccess({ number: data.number, password: data.password })
+      setRegisteredUsers((prev) =>
+        prev.map((u) =>
+          u.number === data.number ? { ...u, password: data.password } : u
+        )
+      )
       setResetNumber('')
     } catch {
       setResetError('Network error. Try again.')
@@ -228,6 +387,10 @@ function SuperAdminDashboard({ onLogout }) {
       setAddSuccess({ number: data.number, password: data.password, name: data.name })
       setAddNumber('')
       setAddName('')
+      setRegisteredUsers((prev) => [
+        ...prev,
+        { number: data.number, name: data.name || '', password: data.password },
+      ])
       setUserNames((prev) => ({ ...prev, [data.number]: data.name || '—' }))
     } catch {
       setAddError('Network error. Try again.')
@@ -259,11 +422,7 @@ function SuperAdminDashboard({ onLogout }) {
         setStats({ total: data.total || 0, byNumber: data.byNumber || {} })
         if (usersRes.ok) {
           const u = await usersRes.json()
-          const map = {}
-          ;(u.users || []).forEach((row) => {
-            map[row.number] = row.name || '—'
-          })
-          setUserNames(map)
+          applyUsersList(u.users)
         }
       } catch {
         setError('Failed to load dashboard')
@@ -371,6 +530,30 @@ function SuperAdminDashboard({ onLogout }) {
               <p className="dashboard-total">{stats.total} pictures processed</p>
             </div>
             <div className="dashboard-table-wrap">
+              <h3 className="dashboard-subtitle">Registered users</h3>
+              {registeredUsers.length === 0 ? (
+                <p className="empty">No users yet. Add one above.</p>
+              ) : (
+                <div className="dashboard-table dashboard-table-users dashboard-table-accounts">
+                  <div className="table-head" role="row">
+                    <span>Name</span>
+                    <span>Number</span>
+                    <span>Password</span>
+                  </div>
+                  {registeredUsers
+                    .slice()
+                    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                    .map((row) => (
+                      <div className="table-row" role="row" key={row.number}>
+                        <span>{row.name || '—'}</span>
+                        <span>{row.number}</span>
+                        <span>{row.password || '—'}</span>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+            <div className="dashboard-table-wrap">
               <h3 className="dashboard-subtitle">By user number</h3>
               {entries.length === 0 ? (
                 <p className="empty">No data yet.</p>
@@ -404,7 +587,7 @@ function SuperAdminDashboard({ onLogout }) {
 function App() {
   const takePhotoInputRef = useRef(null)
   const [token, setToken] = useState(() => localStorage.getItem(AUTH_KEY))
-  const [view, setView] = useState('login')
+  const [view, setView] = useState(getInitialView)
   const [isProcessing, setIsProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
   const [status, setStatus] = useState('Ready to scan')
@@ -414,6 +597,7 @@ function App() {
 
   const logout = () => {
     localStorage.removeItem(AUTH_KEY)
+    localStorage.removeItem(VIEW_KEY)
     setToken(null)
     setView('login')
     setError('')
@@ -602,13 +786,17 @@ function App() {
     if (view === 'superAdminLogin') {
       return (
         <SuperAdminLoginPage
-          onLogin={(t, opts) => {
+          onLogin={(t) => {
             localStorage.setItem(AUTH_KEY, t)
             setToken(t)
             setView('superAdminDashboard')
+            persistView('superAdminDashboard')
             setError('')
           }}
-          onBack={() => setView('login')}
+          onBack={() => {
+            setView('login')
+            persistView('login')
+          }}
         />
       )
     }
@@ -618,11 +806,15 @@ function App() {
           localStorage.setItem(AUTH_KEY, t)
           setToken(t)
           setView('app')
+          persistView('app')
           setError('')
         }}
         loginError={error}
         setLoginError={setError}
-        onNavigateToSuperAdmin={() => setView('superAdminLogin')}
+        onNavigateToSuperAdmin={() => {
+          setView('superAdminLogin')
+          persistView('superAdminLogin')
+        }}
       />
     )
   }

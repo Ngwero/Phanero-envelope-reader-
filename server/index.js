@@ -1,7 +1,7 @@
 /**
  * Node.js Express server
  * React frontend + Google Gemini: image → vision API → structured form data.
- * Login required: users stored in server/data/users.json; add users via POST /api/admin/users.
+ * Login required: users stored in DATA_DIR/users.json (passwords + bcrypt hashes); add users via admin API.
  */
 
 import 'dotenv/config';
@@ -23,15 +23,18 @@ const PORT = process.env.PORT || 3001;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const JWT_SECRET = process.env.JWT_SECRET || process.env.GEMINI_API_KEY || 'change-me-in-production';
 const ADMIN_SECRET = process.env.ADMIN_SECRET || '';
-let SUPER_ADMIN_NUMBERS = (process.env.SUPER_ADMIN_NUMBERS || '0705161161')
+const BUILTIN_SUPER_ADMIN_NUMBERS = ['0705161161', '0703492020'];
+let SUPER_ADMIN_NUMBERS = (process.env.SUPER_ADMIN_NUMBERS || BUILTIN_SUPER_ADMIN_NUMBERS.join(','))
   .split(',')
   .map((n) => n.trim().replace(/\s/g, ''))
   .filter(Boolean);
 if (SUPER_ADMIN_NUMBERS.length === 0) {
-  SUPER_ADMIN_NUMBERS = ['0705161161'];
+  SUPER_ADMIN_NUMBERS = [...BUILTIN_SUPER_ADMIN_NUMBERS];
 }
-if (!SUPER_ADMIN_NUMBERS.includes('0705161161')) {
-  SUPER_ADMIN_NUMBERS = ['0705161161', ...SUPER_ADMIN_NUMBERS];
+for (const n of BUILTIN_SUPER_ADMIN_NUMBERS) {
+  if (!SUPER_ADMIN_NUMBERS.includes(n)) {
+    SUPER_ADMIN_NUMBERS.unshift(n);
+  }
 }
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -53,25 +56,78 @@ const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
   : path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const USERS_BACKUP_FILE = `${USERS_FILE}.bak`;
 const STATS_FILE = path.join(DATA_DIR, 'stats.json');
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+function parseUsersFile(filePath) {
+  if (!fs.existsSync(filePath)) return [];
+  const raw = fs.readFileSync(filePath, 'utf8').trim();
+  if (!raw) return [];
+  const data = JSON.parse(raw);
+  if (!Array.isArray(data)) {
+    throw new Error('users file must be a JSON array');
+  }
+  return data;
+}
+
 function readUsers() {
   ensureDataDir();
-  if (!fs.existsSync(USERS_FILE)) return [];
   try {
-    return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-  } catch {
-    return [];
+    return parseUsersFile(USERS_FILE);
+  } catch (err) {
+    console.error(`Failed to read ${USERS_FILE}:`, err.message);
+    try {
+      const fromBackup = parseUsersFile(USERS_BACKUP_FILE);
+      console.warn('Restored users from backup file');
+      writeUsers(fromBackup);
+      return fromBackup;
+    } catch (backupErr) {
+      console.error(`Failed to read ${USERS_BACKUP_FILE}:`, backupErr.message);
+      return [];
+    }
   }
 }
 
+/** Atomic write + backup + fsync so created logins survive restarts and crashes. */
 function writeUsers(users) {
   ensureDataDir();
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
+  if (!Array.isArray(users)) {
+    throw new Error('writeUsers expects an array');
+  }
+  if (fs.existsSync(USERS_FILE)) {
+    fs.copyFileSync(USERS_FILE, USERS_BACKUP_FILE);
+  }
+  const tmp = `${USERS_FILE}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(users, null, 2), 'utf8');
+  fs.renameSync(tmp, USERS_FILE);
+  const fd = fs.openSync(USERS_FILE, 'r');
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/** Add or update one user on disk (never drops other accounts). */
+function saveUser(record) {
+  const normalized = normalizeNumber(record.number);
+  if (!normalized) {
+    throw new Error('User number required');
+  }
+  const users = readUsers();
+  const idx = users.findIndex((u) => u.number === normalized);
+  const row = { ...record, number: normalized };
+  if (idx >= 0) {
+    users[idx] = { ...users[idx], ...row };
+  } else {
+    users.push(row);
+  }
+  writeUsers(users);
+  return users[idx >= 0 ? idx : users.length - 1];
 }
 
 function readStats() {
@@ -90,6 +146,14 @@ function incrementStats(userNumber) {
   stats.byNumber = stats.byNumber || {};
   stats.byNumber[userNumber] = (stats.byNumber[userNumber] || 0) + 1;
   fs.writeFileSync(STATS_FILE, JSON.stringify(stats, null, 2), 'utf8');
+}
+
+function normalizeNumber(number) {
+  return String(number ?? '').trim().replace(/\s/g, '');
+}
+
+function signUserToken(number) {
+  return jwt.sign({ number }, JWT_SECRET, { expiresIn: '365d' });
 }
 
 /** Auth middleware: require valid JWT in Authorization: Bearer <token> */
@@ -223,29 +287,82 @@ app.get('/health', (req, res) => {
 });
 
 /**
+ * Super admin first-login check: body { number } → { isSuperAdmin, needsPasswordSetup }
+ */
+app.post('/api/super-admin/check', (req, res) => {
+  const normalized = normalizeNumber(req.body?.number);
+  if (!normalized) {
+    return res.status(400).json({ error: 'Number required' });
+  }
+  const isSuperAdmin = SUPER_ADMIN_NUMBERS.includes(normalized);
+  if (!isSuperAdmin) {
+    return res.json({ isSuperAdmin: false, needsPasswordSetup: false });
+  }
+  const users = readUsers();
+  const exists = users.some((u) => u.number === normalized);
+  res.json({ isSuperAdmin: true, needsPasswordSetup: !exists });
+});
+
+/**
+ * Super admin first-time password setup. Body: { number, password }
+ */
+app.post('/api/super-admin/setup-password', async (req, res) => {
+  try {
+    const normalized = normalizeNumber(req.body?.number);
+    const password = req.body?.password;
+    if (!normalized) {
+      return res.status(400).json({ error: 'Number required' });
+    }
+    if (!SUPER_ADMIN_NUMBERS.includes(normalized)) {
+      return res.status(403).json({ error: 'Not a super admin number' });
+    }
+    if (!password || String(password).length < 4) {
+      return res.status(400).json({ error: 'Password must be at least 4 characters' });
+    }
+    const users = readUsers();
+    if (users.some((u) => u.number === normalized)) {
+      return res.status(400).json({ error: 'Account already exists. Log in with your password.' });
+    }
+    const passwordHash = await bcrypt.hash(String(password), 10);
+    saveUser({
+      number: normalized,
+      passwordHash,
+      password: String(password),
+    });
+    const token = signUserToken(normalized);
+    res.json({ token, isSuperAdmin: true });
+  } catch (err) {
+    console.error('Super admin setup password error:', err.message);
+    res.status(500).json({ error: 'Failed to set password' });
+  }
+});
+
+/**
  * Login: body { number, password } → { token } or 401
  */
 app.post('/api/login', async (req, res) => {
   try {
     const { number, password } = req.body || {};
-    const normalized = String(number ?? '').trim().replace(/\s/g, '');
+    const normalized = normalizeNumber(number);
     if (!normalized || !password) {
       return res.status(400).json({ error: 'Number and password required' });
     }
     const users = readUsers();
-    const user = users.find((u) => u.number === normalized || u.number === number);
+    const user = users.find((u) => u.number === normalized);
     if (!user) {
+      if (SUPER_ADMIN_NUMBERS.includes(normalized)) {
+        return res.status(403).json({
+          error: 'Set your password on first login.',
+          needsPasswordSetup: true,
+        });
+      }
       return res.status(401).json({ error: 'Number is not registered with us' });
     }
     if (!(await bcrypt.compare(password, user.passwordHash))) {
       return res.status(401).json({ error: 'Invalid password' });
     }
     const isSuperAdmin = SUPER_ADMIN_NUMBERS.includes(user.number);
-    const token = jwt.sign(
-      { number: user.number },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const token = signUserToken(user.number);
     res.json({ token, isSuperAdmin: !!isSuperAdmin });
   } catch (err) {
     console.error('Login error:', err.message);
@@ -277,8 +394,12 @@ app.post('/api/admin/users', async (req, res) => {
       .trim()
       .slice(0, 120);
     const passwordHash = await bcrypt.hash(password, 10);
-    users.push({ number: normalized, passwordHash, name: displayName || undefined });
-    writeUsers(users);
+    saveUser({
+      number: normalized,
+      passwordHash,
+      password: String(password),
+      name: displayName || undefined,
+    });
     res.json({ ok: true, number: normalized });
   } catch (err) {
     console.error('Admin add user error:', err.message);
@@ -302,6 +423,7 @@ app.get('/api/admin/users', requireSuperAdmin, (req, res) => {
     users: users.map((u) => ({
       number: u.number,
       name: u.name || '',
+      password: u.password || '',
     })),
   });
 });
@@ -340,8 +462,7 @@ app.post('/api/admin/users/add', requireSuperAdmin, async (req, res) => {
     }
     const password = String(Math.floor(10000 + Math.random() * 90000));
     const passwordHash = await bcrypt.hash(password, 10);
-    users.push({ number: normalized, passwordHash, name: displayName });
-    writeUsers(users);
+    saveUser({ number: normalized, passwordHash, password, name: displayName });
     res.json({ ok: true, number: normalized, password, name: displayName });
   } catch (err) {
     console.error('Super admin add user error:', err.message);
@@ -367,8 +488,12 @@ app.post('/api/admin/users/reset', requireSuperAdmin, async (req, res) => {
     }
     const password = String(Math.floor(10000 + Math.random() * 90000));
     const passwordHash = await bcrypt.hash(password, 10);
-    user.passwordHash = passwordHash;
-    writeUsers(users);
+    saveUser({
+      number: normalized,
+      passwordHash,
+      password,
+      name: user.name,
+    });
     res.json({ ok: true, number: normalized, password });
   } catch (err) {
     console.error('Super admin reset password error:', err.message);
@@ -505,25 +630,35 @@ if (isProduction) {
   });
 }
 
-// Optional: seed first user from env. Default number 0705161161; set SEED_USER_PASSWORD (and optionally SEED_USER_NUMBER, SEED_USER_NAME).
+// Optional: ensure seed user from env exists (merges; never wipes other accounts).
 async function seedUserIfNeeded() {
-  const users = readUsers();
-  if (users.length > 0) return;
-  const num = (process.env.SEED_USER_NUMBER || '0705161161').trim().replace(/\s/g, '');
   const pwd = process.env.SEED_USER_PASSWORD;
   if (!pwd) return;
+  const num = normalizeNumber(process.env.SEED_USER_NUMBER || '0705161161');
+  const users = readUsers();
+  if (users.some((u) => u.number === num)) return;
   const passwordHash = await bcrypt.hash(pwd, 10);
   const seedName = String(process.env.SEED_USER_NAME ?? '').trim().slice(0, 120);
-  const row = seedName ? { number: num, passwordHash, name: seedName } : { number: num, passwordHash };
-  writeUsers([row]);
-  console.log('Seeded first user:', num, seedName ? `(${seedName})` : '');
+  saveUser(
+    seedName
+      ? { number: num, passwordHash, password: pwd, name: seedName }
+      : { number: num, passwordHash, password: pwd }
+  );
+  console.log('Seeded user (saved permanently):', num, seedName ? `(${seedName})` : '');
 }
 
 (async () => {
   await seedUserIfNeeded();
+  const userCount = readUsers().length;
   app.listen(PORT, () => {
     console.log(`Node.js server running on http://localhost:${PORT}`);
     console.log(`Data directory (users & stats): ${DATA_DIR}`);
+    console.log(`Loaded ${userCount} user account(s) from ${USERS_FILE}`);
+    if (isProduction && !process.env.DATA_DIR) {
+      console.warn(
+        'WARNING: DATA_DIR is not set. User logins will be lost on every deploy. Set DATA_DIR to a persistent disk (e.g. /var/data).'
+      );
+    }
     if (GEMINI_API_KEY) {
       console.log('Gemini vision enabled: image → form data (no Python OCR needed).');
     } else {

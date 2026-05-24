@@ -19,6 +19,8 @@ services:
         value: /var/data
       - key: GEMINI_API_KEY
         sync: false  # set manually in Render dashboard
+      - key: SUPER_ADMIN_NUMBERS
+        value: "0705161161,0703492020"
       - key: SEED_USER_NUMBER
         value: "0705161161"
       - key: SEED_USER_PASSWORD

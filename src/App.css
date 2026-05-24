@@ -33,6 +33,12 @@
   letter-spacing: -0.02em;
 }
 
+.login-hint {
+  margin: -0.25rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted, #6b7280);
+}
+
 .login-lede {
   color: #b8d4a0;
   font-size: 15px;
@@ -183,6 +189,11 @@
 
 .dashboard-table-users {
   grid-template-columns: 1.2fr auto auto;
+}
+
+.dashboard-table-accounts .table-row span:last-child {
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.05em;
 }
 
 .dashboard-table .table-head,
