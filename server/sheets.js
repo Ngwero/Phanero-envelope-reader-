@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { google } from 'googleapis';
 
-function getSheetsAuth() {
+export function getSheetsAuth() {
   const keyFile = process.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (keyFile && fs.existsSync(path.resolve(keyFile))) {
     return new google.auth.GoogleAuth({
